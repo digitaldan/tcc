@@ -1,6 +1,9 @@
 package app
 
-import "github.com/dcunningham/ctmux/internal/status"
+import (
+	"github.com/dcunningham/ctmux/internal/claude"
+	"github.com/dcunningham/ctmux/internal/status"
+)
 
 // damageMsg signals that a session's screen changed.
 type damageMsg struct{ tabID string }
@@ -19,3 +22,9 @@ type hookEventMsg struct{ ev status.HookEvent }
 
 // tickMsg drives periodic UI refresh (busy spinner animation).
 type tickMsg struct{}
+
+// jobStateMsg carries a daemon job-state change for an attached tab.
+type jobStateMsg struct {
+	tabID string
+	js    claude.JobState
+}

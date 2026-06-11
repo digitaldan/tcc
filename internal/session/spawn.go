@@ -21,9 +21,10 @@ func NewUUID() string {
 type SpawnOptions struct {
 	Dir          string   // working directory
 	SettingsFile string   // hooks settings file passed via --settings ("" to skip)
-	ExtraArgs    []string // e.g. ["--resume", "<id>"] or ["attach", "<short>"]
+	ExtraArgs    []string // e.g. ["--resume", "<id>"]
 	ClaudeBin    string   // defaults to "claude" from PATH
 	PreassignID  bool     // pass --session-id with a fresh UUID
+	Attach       string   // daemon short id; runs `claude attach <short>` (no settings/session-id)
 }
 
 // NewClaude builds a Session (not yet started) running claude with ctmux's
@@ -41,15 +42,22 @@ func NewClaude(opts SpawnOptions) *Session {
 		Kind:  KindSpawned,
 	}
 
-	args := []string{}
-	if opts.SettingsFile != "" {
-		args = append(args, "--settings", opts.SettingsFile)
+	var args []string
+	if opts.Attach != "" {
+		// `claude attach` joins a daemon worker; per-session settings flags
+		// don't apply to the already-running worker.
+		args = []string{"attach", opts.Attach}
+		s.Kind = KindAttached
+	} else {
+		if opts.SettingsFile != "" {
+			args = append(args, "--settings", opts.SettingsFile)
+		}
+		if opts.PreassignID {
+			s.SessionID = NewUUID()
+			args = append(args, "--session-id", s.SessionID)
+		}
+		args = append(args, opts.ExtraArgs...)
 	}
-	if opts.PreassignID {
-		s.SessionID = NewUUID()
-		args = append(args, "--session-id", s.SessionID)
-	}
-	args = append(args, opts.ExtraArgs...)
 
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = opts.Dir

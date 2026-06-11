@@ -58,11 +58,13 @@ func (m *Model) tabBar() string {
 	hint := ""
 	switch m.mode {
 	case uiChord:
-		hint = chordStyle.Render(" ^Q  c:new r:resume n/p:switch x:close d:quit ")
+		hint = chordStyle.Render(" ^Q  c:new r:resume a:agents n/p:switch x:close d:quit ")
 	case uiDirPrompt:
 		hint = chordStyle.Render(" new session ")
 	case uiResumePicker:
 		hint = chordStyle.Render(" resume session ")
+	case uiAgentsPicker:
+		hint = chordStyle.Render(" background agents ")
 	}
 	hintW := lipgloss.Width(hint)
 

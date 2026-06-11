@@ -22,8 +22,9 @@ import (
 // tab couples a session with its UI state.
 type tab struct {
 	*session.Session
-	status status.State
-	detail string // e.g. notification message for needs_input
+	status       status.State
+	detail       string // e.g. notification message for needs_input
+	stopJobWatch func() // attached tabs: stops the daemon job-state watcher
 }
 
 // uiMode is what the chrome is currently showing.
@@ -34,6 +35,7 @@ const (
 	uiChord                      // prefix pressed, awaiting chord key
 	uiDirPrompt                  // "new tab" directory prompt
 	uiResumePicker               // resume-a-session list
+	uiAgentsPicker               // background agents list
 )
 
 type Model struct {
@@ -51,6 +53,7 @@ type Model struct {
 
 	dirPrompt *dirPrompt
 	resume    *resumePicker
+	agents    *agentsPicker
 
 	startDir     string
 	settingsFile string
@@ -165,13 +168,18 @@ func (m *Model) tabByID(tabID string) *tab {
 
 // spawn starts a new claude session in dir and makes it the active tab.
 func (m *Model) spawn(dir string, extraArgs []string, kind session.Kind, title string) error {
-	s := session.NewClaude(session.SpawnOptions{
+	return m.spawnWith(session.SpawnOptions{
 		Dir:          dir,
 		SettingsFile: m.settingsFile,
 		ExtraArgs:    extraArgs,
 		PreassignID:  kind == session.KindSpawned,
-	})
-	s.Kind = kind
+	}, title)
+}
+
+// spawnWith starts a claude child from explicit options and makes it the
+// active tab.
+func (m *Model) spawnWith(opts session.SpawnOptions, title string) error {
+	s := session.NewClaude(opts)
 	if title != "" {
 		s.Title = title
 	}
@@ -207,6 +215,7 @@ func (m *Model) enterSessionMode() {
 	m.mode = uiSession
 	m.dirPrompt = nil
 	m.resume = nil
+	m.agents = nil
 	m.router.SetMode(term.ModeSession)
 }
 
@@ -214,6 +223,9 @@ func (m *Model) enterSessionMode() {
 func (m *Model) closeTab(i int) tea.Cmd {
 	if i < 0 || i >= len(m.sessions) {
 		return nil
+	}
+	if m.sessions[i].stopJobWatch != nil {
+		m.sessions[i].stopJobWatch()
 	}
 	m.sessions[i].Close()
 	m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
@@ -262,6 +274,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case damageMsg:
 		return m, nil // re-render
 
+	case jobStateMsg:
+		if t := m.tabByID(msg.tabID); t != nil {
+			t.applyJobState(msg.js)
+		}
+		return m, nil
+
 	case hookEventMsg:
 		if t := m.tabByID(msg.ev.TabID); t != nil {
 			if st, ok := status.FromHookEvent(msg.ev.Event); ok && !t.Exited() {
@@ -296,6 +314,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleDirPrompt(msg)
 		case uiResumePicker:
 			return m.handleResumePicker(msg)
+		case uiAgentsPicker:
+			return m.handleAgentsPicker(msg)
 		default:
 			// Bytes that raced into chrome mode while returning to session
 			// mode: forward printable runes rather than dropping them.
@@ -326,6 +346,10 @@ func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.mode = uiResumePicker
 		m.resume = newResumePicker(m.width, m.bodyRows())
+		return m, nil
+	case "a":
+		m.mode = uiAgentsPicker
+		m.agents = newAgentsPicker(m.width, m.bodyRows())
 		return m, nil
 	case "n", "tab":
 		m.setActive((m.active + 1) % max(len(m.sessions), 1))
@@ -363,6 +387,8 @@ func (m *Model) View() string {
 		body = m.dirPrompt.view(m.width, rows)
 	case m.mode == uiResumePicker && m.resume != nil:
 		body = m.resume.view(m.width, rows)
+	case m.mode == uiAgentsPicker && m.agents != nil:
+		body = m.agents.view(m.width, rows)
 	default:
 		if t := m.activeTab(); t != nil && t.Term != nil {
 			body = t.Term.View()
