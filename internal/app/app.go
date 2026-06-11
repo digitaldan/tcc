@@ -5,31 +5,35 @@ package app
 import (
 	"fmt"
 	"os"
+
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	xterm "golang.org/x/term"
 
+	"github.com/dcunningham/ctmux/internal/claude"
+	"github.com/dcunningham/ctmux/internal/config"
 	"github.com/dcunningham/ctmux/internal/session"
+	"github.com/dcunningham/ctmux/internal/status"
 	"github.com/dcunningham/ctmux/internal/term"
 )
 
 // tab couples a session with its UI state.
 type tab struct {
 	*session.Session
+	status status.State
+	detail string // e.g. notification message for needs_input
 }
 
-// StatusGlyph is a placeholder until the hook-driven status engine (M1)
-// lands: running vs exited only.
-func (t *tab) StatusGlyph() string {
-	if t.Exited() {
-		if t.ExitCode != 0 {
-			return "✕"
-		}
-		return "▢"
-	}
-	return "○"
-}
+// uiMode is what the chrome is currently showing.
+type uiMode int
+
+const (
+	uiSession   uiMode = iota // stdin routed to the active PTY
+	uiChord                   // prefix pressed, awaiting chord key
+	uiDirPrompt               // "new tab" directory prompt
+)
 
 type Model struct {
 	program *tea.Program
@@ -41,10 +45,14 @@ type Model struct {
 	width  int
 	height int
 
-	chordPending bool
-	quitting     bool
+	mode     uiMode
+	quitting bool
 
-	startDir string
+	dirPrompt *dirPrompt
+
+	startDir     string
+	settingsFile string
+	stopWatcher  func()
 }
 
 func Run(args []string) error {
@@ -62,9 +70,15 @@ func Run(args []string) error {
 	}
 	defer func() { _ = xterm.Restore(int(os.Stdin.Fd()), oldState) }()
 
+	settingsFile, err := writeHooksSettings()
+	if err != nil {
+		return err
+	}
+
 	m := &Model{
-		router:   term.NewRouter(),
-		startDir: dir,
+		router:       term.NewRouter(),
+		startDir:     dir,
+		settingsFile: settingsFile,
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithInput(m.router))
@@ -75,8 +89,22 @@ func Run(args []string) error {
 	})
 	go m.router.Run()
 
+	stateDir, err := config.StateDir()
+	if err != nil {
+		return err
+	}
+	m.stopWatcher, err = status.Watch(stateDir, func(ev status.HookEvent) {
+		p.Send(hookEventMsg{ev})
+	})
+	if err != nil {
+		return err
+	}
+
 	_, err = p.Run()
 	debugf("p.Run returned: %v", err)
+	if m.stopWatcher != nil {
+		m.stopWatcher()
+	}
 	for _, t := range m.sessions {
 		t.Close()
 	}
@@ -84,7 +112,29 @@ func Run(args []string) error {
 	return err
 }
 
-func (m *Model) Init() tea.Cmd { return nil }
+// writeHooksSettings writes the --settings file pointing hooks at this
+// binary's _hook subcommand.
+func writeHooksSettings() (string, error) {
+	bin, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	path, err := config.HooksSettingsPath()
+	if err != nil {
+		return "", err
+	}
+	if err := claude.WriteHooksSettings(path, bin); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (m *Model) Init() tea.Cmd { return tickCmd() }
+
+// tickCmd drives the busy-spinner animation and other periodic UI refresh.
+func tickCmd() tea.Cmd {
+	return tea.Tick(400*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+}
 
 // bodyRows returns the height available to sessions (terminal minus tab bar).
 func (m *Model) bodyRows() int {
@@ -102,10 +152,28 @@ func (m *Model) activeTab() *tab {
 	return nil
 }
 
+func (m *Model) tabByID(tabID string) *tab {
+	for _, t := range m.sessions {
+		if t.TabID == tabID {
+			return t
+		}
+	}
+	return nil
+}
+
 // spawn starts a new claude session in dir and makes it the active tab.
-func (m *Model) spawn(dir string) error {
-	s := session.NewClaude(session.SpawnOptions{Dir: dir})
-	t := &tab{Session: s}
+func (m *Model) spawn(dir string, extraArgs []string, kind session.Kind, title string) error {
+	s := session.NewClaude(session.SpawnOptions{
+		Dir:          dir,
+		SettingsFile: m.settingsFile,
+		ExtraArgs:    extraArgs,
+		PreassignID:  kind == session.KindSpawned,
+	})
+	s.Kind = kind
+	if title != "" {
+		s.Title = title
+	}
+	t := &tab{Session: s, status: status.Starting}
 	tabID := s.TabID
 	s.OnDamage = func() { m.program.Send(damageMsg{tabID: tabID}) }
 	s.OnExit = func(code int) { m.program.Send(sessionExitMsg{tabID: tabID, code: code}) }
@@ -134,15 +202,34 @@ func (m *Model) setActive(i int) {
 
 // enterSessionMode hands stdin back to the active session.
 func (m *Model) enterSessionMode() {
-	m.chordPending = false
+	m.mode = uiSession
+	m.dirPrompt = nil
 	m.router.SetMode(term.ModeSession)
+}
+
+// closeTab kills the session and removes its tab. Quits when none remain.
+func (m *Model) closeTab(i int) tea.Cmd {
+	if i < 0 || i >= len(m.sessions) {
+		return nil
+	}
+	m.sessions[i].Close()
+	m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
+	if len(m.sessions) == 0 {
+		m.quitting = true
+		return tea.Quit
+	}
+	if m.active >= len(m.sessions) {
+		m.active = len(m.sessions) - 1
+	}
+	m.setActive(m.active)
+	return nil
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg.(type) {
-	case damageMsg:
+	case damageMsg, tickMsg:
 	default:
-		debugf("update: %T %v (chord=%v mode=%v)", msg, msg, m.chordPending, m.router.Mode())
+		debugf("update: %T %v (mode=%v rmode=%v)", msg, msg, m.mode, m.router.Mode())
 	}
 	switch msg := msg.(type) {
 
@@ -153,7 +240,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t.Resize(m.width, m.bodyRows())
 		}
 		if first && len(m.sessions) == 0 {
-			if err := m.spawn(m.startDir); err != nil {
+			if err := m.spawn(m.startDir, nil, session.KindSpawned, ""); err != nil {
 				m.quitting = true
 				return m, tea.Sequence(tea.Printf("ctmux: failed to start claude: %v", err), tea.Quit)
 			}
@@ -161,55 +248,94 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tickMsg:
+		return m, tickCmd()
+
 	case prefixMsg:
 		// Router already switched itself to chrome mode.
-		m.chordPending = true
+		m.mode = uiChord
 		return m, nil
 
 	case damageMsg:
 		return m, nil // re-render
 
+	case hookEventMsg:
+		if t := m.tabByID(msg.ev.TabID); t != nil {
+			if st, ok := status.FromHookEvent(msg.ev.Event); ok && !t.Exited() {
+				t.status = st
+				t.detail = msg.ev.Message
+			}
+			if msg.ev.SessionID != "" {
+				t.SessionID = msg.ev.SessionID
+			}
+		}
+		return m, nil
+
 	case sessionExitMsg:
-		for _, t := range m.sessions {
-			if t.TabID == msg.tabID {
-				t.ExitCode = msg.code
+		if t := m.tabByID(msg.tabID); t != nil {
+			t.ExitCode = msg.code
+			if msg.code != 0 {
+				t.status = status.Error
+			} else {
+				t.status = status.Exited
 			}
 		}
 		if at := m.activeTab(); at != nil && at.TabID == msg.tabID {
 			m.router.SetActive(nil)
 		}
-		// M0: single session — leaving means quitting.
-		if len(m.sessions) == 1 {
-			m.quitting = true
-			return m, tea.Quit
-		}
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.chordPending {
+		switch m.mode {
+		case uiChord:
 			return m.handleChord(msg)
+		case uiDirPrompt:
+			return m.handleDirPrompt(msg)
+		default:
+			// Bytes that raced into chrome mode while returning to session
+			// mode: forward printable runes rather than dropping them.
+			if m.router.Mode() == term.ModeSession && msg.Type == tea.KeyRunes {
+				m.router.SendToActive([]byte(string(msg.Runes)))
+				// Approving a permission prompt means Claude is working again.
+				if t := m.activeTab(); t != nil && t.status == status.NeedsInput {
+					t.status = status.Busy
+				}
+			}
+			return m, nil
 		}
-		// Bytes that raced into chrome mode while returning to session mode:
-		// forward printable runes to the active PTY rather than dropping them.
-		if m.router.Mode() == term.ModeSession && msg.Type == tea.KeyRunes {
-			m.router.SendToActive([]byte(string(msg.Runes)))
-		}
-		return m, nil
 	}
 	return m, nil
 }
 
 // handleChord processes the key after the Ctrl+Q prefix.
 func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	defer m.enterSessionMode()
-	switch msg.String() {
-	case "d", "q":
+	key := msg.String()
+	switch key {
+	case "d":
 		m.quitting = true
 		return m, tea.Quit
+	case "c":
+		m.mode = uiDirPrompt
+		m.dirPrompt = newDirPrompt(m.startDir)
+		return m, nil
+	case "n", "tab":
+		m.setActive((m.active + 1) % max(len(m.sessions), 1))
+	case "p", "shift+tab":
+		m.setActive((m.active - 1 + len(m.sessions)) % max(len(m.sessions), 1))
+	case "x":
+		if cmd := m.closeTab(m.active); cmd != nil {
+			m.quitting = true
+			return m, cmd
+		}
 	case "ctrl+q":
 		m.router.SendToActive([]byte{term.PrefixByte})
+	default:
+		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+			m.setActive(int(key[0] - '1'))
+		}
+		// esc or anything else: cancel
 	}
-	// esc or anything else: cancel
+	m.enterSessionMode()
 	return m, nil
 }
 
@@ -221,16 +347,25 @@ func (m *Model) View() string {
 		return "starting…"
 	}
 
-	body := ""
-	if t := m.activeTab(); t != nil && t.Term != nil {
-		body = t.Term.View()
-	} else {
-		body = fmt.Sprintf("no session\n\npress ^Q d to quit")
+	rows := m.bodyRows()
+	var body string
+	switch {
+	case m.mode == uiDirPrompt && m.dirPrompt != nil:
+		body = m.dirPrompt.view(m.width, rows)
+	default:
+		if t := m.activeTab(); t != nil && t.Term != nil {
+			body = t.Term.View()
+			if t.Exited() {
+				body = overlayLine(body, m.width,
+					fmt.Sprintf(" session exited (%d) — ^Q x to close tab, ^Q c for a new one ", t.ExitCode))
+			}
+		} else {
+			body = "no session — press ^Q c to open one"
+		}
 	}
 
 	// Body must be exactly bodyRows lines.
 	lines := strings.Split(body, "\n")
-	rows := m.bodyRows()
 	if len(lines) > rows {
 		lines = lines[:rows]
 	}
@@ -239,4 +374,19 @@ func (m *Model) View() string {
 	}
 
 	return m.tabBar() + "\n" + strings.Join(lines, "\n")
+}
+
+// overlayLine replaces the last line of body with a centered notice.
+func overlayLine(body string, width int, notice string) string {
+	lines := strings.Split(body, "\n")
+	if len(lines) == 0 {
+		return body
+	}
+	style := chordStyle
+	pad := (width - len(notice)) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	lines[len(lines)-1] = strings.Repeat(" ", pad) + style.Render(notice)
+	return strings.Join(lines, "\n")
 }

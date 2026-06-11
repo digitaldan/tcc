@@ -3,8 +3,11 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/dcunningham/ctmux/internal/status"
 )
 
 var (
@@ -12,25 +15,52 @@ var (
 	tabActiveStyle = lipgloss.NewStyle().Background(lipgloss.Color("31")).Foreground(lipgloss.Color("231")).Bold(true)
 	tabIdleStyle   = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("250"))
 	chordStyle     = lipgloss.NewStyle().Background(lipgloss.Color("178")).Foreground(lipgloss.Color("16")).Bold(true)
+
+	glyphColors = map[status.State]lipgloss.Color{
+		status.Starting:   lipgloss.Color("244"),
+		status.Busy:       lipgloss.Color("220"),
+		status.Idle:       lipgloss.Color("114"),
+		status.NeedsInput: lipgloss.Color("203"),
+		status.Error:      lipgloss.Color("196"),
+		status.Exited:     lipgloss.Color("240"),
+	}
 )
+
+var spinnerFrames = []string{"✶", "✸", "✹", "✺"}
+
+// glyphFor renders the status indicator, animating the busy spinner.
+func glyphFor(st status.State) string {
+	if st == status.Busy {
+		frame := int(time.Now().UnixMilli()/400) % len(spinnerFrames)
+		return spinnerFrames[frame]
+	}
+	return st.Glyph()
+}
 
 // tabBar renders the single-row tab bar across the top.
 func (m *Model) tabBar() string {
 	var b strings.Builder
 	used := 0
-	for i, s := range m.sessions {
-		label := fmt.Sprintf(" %d:%s %s ", i+1, s.Title, s.StatusGlyph())
+	for i, t := range m.sessions {
 		style := tabIdleStyle
 		if i == m.active {
 			style = tabActiveStyle
 		}
-		b.WriteString(style.Render(label))
-		used += lipgloss.Width(label)
+		glyph := lipgloss.NewStyle().
+			Background(style.GetBackground()).
+			Foreground(glyphColors[t.status]).
+			Render(glyphFor(t.status))
+		label := fmt.Sprintf(" %d:%s ", i+1, t.Title)
+		b.WriteString(style.Render(label) + glyph + style.Render(" "))
+		used += lipgloss.Width(label) + 2
 	}
 
 	hint := ""
-	if m.chordPending {
-		hint = chordStyle.Render(" ^Q… d:quit  esc:cancel ")
+	switch m.mode {
+	case uiChord:
+		hint = chordStyle.Render(" ^Q  c:new n/p:switch x:close d:quit ")
+	case uiDirPrompt:
+		hint = chordStyle.Render(" new session ")
 	}
 	hintW := lipgloss.Width(hint)
 

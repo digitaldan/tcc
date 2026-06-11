@@ -22,6 +22,7 @@ func main() {
 	keys := flag.String("keys", "", "bytes to send after wait (supports \\x11 etc. via Go quoting upstream)")
 	cols := flag.Int("cols", 100, "columns")
 	rows := flag.Int("rows", 30, "rows")
+	rawOut := flag.String("raw", "", "file to append all captured PTY output bytes to")
 	flag.Parse()
 
 	cmd := exec.Command(*bin)
@@ -34,6 +35,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	var rawFile *os.File
+	if *rawOut != "" {
+		rawFile, _ = os.Create(*rawOut)
+		defer rawFile.Close()
+	}
+
 	em := vt.NewSafeEmulator(*cols, *rows)
 	done := make(chan struct{})
 	go func() {
@@ -42,6 +49,9 @@ func main() {
 			n, rerr := f.Read(buf)
 			if n > 0 {
 				_, _ = em.Write(buf[:n])
+				if rawFile != nil {
+					_, _ = rawFile.Write(buf[:n])
+				}
 			}
 			if rerr != nil {
 				close(done)
@@ -69,6 +79,8 @@ func main() {
 			_, _ = f.Write([]byte{0x1b})
 		case "CTRLQ":
 			_, _ = f.Write([]byte{0x11})
+		case "CTRLU":
+			_, _ = f.Write([]byte{0x15})
 		case "SNAP":
 			fmt.Println("===== SCREEN =====")
 			fmt.Println(em.String())

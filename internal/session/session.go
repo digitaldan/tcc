@@ -65,6 +65,12 @@ func (s *Session) Start(cols, rows int) error {
 
 	notify := make(chan struct{}, 1)
 
+	// emulator responses -> PTY (capability query answers). Must start before
+	// the PTY reader: Feed blocks on the response pipe until it's drained.
+	go func() {
+		_, _ = io.Copy(f, s.Term.Responses())
+	}()
+
 	// PTY -> emulator
 	go func() {
 		buf := make([]byte, 32*1024)
@@ -100,11 +106,6 @@ func (s *Session) Start(cols, rows int) error {
 				}
 			}
 		}
-	}()
-
-	// emulator responses -> PTY (capability query answers)
-	go func() {
-		_, _ = io.Copy(f, s.Term.Responses())
 	}()
 
 	// exit watcher
