@@ -37,10 +37,12 @@ func glyphFor(st status.State) string {
 	return st.Glyph()
 }
 
-// tabBar renders the single-row tab bar across the top.
+// tabBar renders the single-row tab bar across the top and records each
+// tab's end column for click hit-testing.
 func (m *Model) tabBar() string {
 	var b strings.Builder
 	used := 0
+	m.tabBounds = m.tabBounds[:0]
 	for i, t := range m.sessions {
 		style := tabIdleStyle
 		if i == m.active {
@@ -53,12 +55,13 @@ func (m *Model) tabBar() string {
 		label := fmt.Sprintf(" %d:%s ", i+1, t.Title)
 		b.WriteString(style.Render(label) + glyph + style.Render(" "))
 		used += lipgloss.Width(label) + 2
+		m.tabBounds = append(m.tabBounds, used)
 	}
 
 	hint := ""
 	switch m.mode {
 	case uiChord:
-		hint = chordStyle.Render(" ^Q  c:new r:resume a:agents n/p:switch x:close d:quit ")
+		hint = chordStyle.Render(" " + m.cfg.PrefixLabel() + "  c:new r:resume a:agents n/p:switch x:close d:quit ")
 	case uiDirPrompt:
 		hint = chordStyle.Render(" new session ")
 	case uiResumePicker:

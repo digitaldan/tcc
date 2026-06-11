@@ -20,9 +20,9 @@ import (
 type Kind int
 
 const (
-	KindSpawned Kind = iota // fresh `claude` in a directory
-	KindResumed             // `claude --resume <id>`
-	KindAttached            // `claude attach <short-id>` (background agent)
+	KindSpawned  Kind = iota // fresh `claude` in a directory
+	KindResumed              // `claude --resume <id>`
+	KindAttached             // `claude attach <short-id>` (background agent)
 )
 
 type Session struct {
@@ -40,6 +40,8 @@ type Session struct {
 	OnDamage func()
 	// OnExit is called once from a goroutine when the child exits.
 	OnExit func(exitCode int)
+	// OnBell is called when the child rings the terminal bell.
+	OnBell func()
 
 	dirty    atomic.Bool
 	exited   atomic.Bool
@@ -56,6 +58,9 @@ const damageInterval = 33 * time.Millisecond
 // child's terminal queries) flow back into the PTY.
 func (s *Session) Start(cols, rows int) error {
 	s.Term = term.New(cols, rows)
+	if s.OnBell != nil {
+		s.Term.OnBell(s.OnBell)
+	}
 
 	f, err := pty.StartWithSize(s.Cmd, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
 	if err != nil {

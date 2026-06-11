@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 )
 
@@ -20,12 +21,15 @@ type Emulator struct {
 	vt            *vt.Emulator
 	cursorVisible bool
 	bell          func()
+	mouseChange   func(enabled bool)
+	mouseModes    map[int]bool
 }
 
 func New(w, h int) *Emulator {
 	e := &Emulator{
 		vt:            vt.NewEmulator(w, h),
 		cursorVisible: true,
+		mouseModes:    map[int]bool{},
 	}
 	e.vt.SetCallbacks(vt.Callbacks{
 		CursorVisibility: func(visible bool) {
@@ -37,12 +41,52 @@ func New(w, h int) *Emulator {
 				e.bell()
 			}
 		},
+		EnableMode:  func(m ansi.Mode) { e.modeChanged(m, true) },
+		DisableMode: func(m ansi.Mode) { e.modeChanged(m, false) },
 	})
 	return e
 }
 
+// modeChanged tracks the child's mouse-tracking modes so the host can mirror
+// them onto the real terminal. Called from within Feed; mu is held.
+func (e *Emulator) modeChanged(m ansi.Mode, on bool) {
+	dec, ok := m.(ansi.DECMode)
+	if !ok {
+		return
+	}
+	switch int(dec) {
+	case 9, 1000, 1002, 1003:
+		before := e.mouseWanted()
+		e.mouseModes[int(dec)] = on
+		if after := e.mouseWanted(); after != before && e.mouseChange != nil {
+			e.mouseChange(after)
+		}
+	}
+}
+
+func (e *Emulator) mouseWanted() bool {
+	for _, on := range e.mouseModes {
+		if on {
+			return true
+		}
+	}
+	return false
+}
+
+// MouseWanted reports whether the child currently has any mouse tracking
+// mode enabled.
+func (e *Emulator) MouseWanted() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.mouseWanted()
+}
+
 // OnBell registers a callback fired when the child rings the terminal bell.
 func (e *Emulator) OnBell(f func()) { e.bell = f }
+
+// OnMouseChange registers a callback fired when the child enables or
+// disables mouse tracking.
+func (e *Emulator) OnMouseChange(f func(enabled bool)) { e.mouseChange = f }
 
 // Feed writes child output into the emulator.
 func (e *Emulator) Feed(p []byte) {

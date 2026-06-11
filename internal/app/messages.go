@@ -28,3 +28,9 @@ type jobStateMsg struct {
 	tabID string
 	js    claude.JobState
 }
+
+// bellMsg signals that a session rang the terminal bell.
+type bellMsg struct{ tabID string }
+
+// tabClickMsg reports a mouse press on the tab bar (1-based column).
+type tabClickMsg struct{ col int }

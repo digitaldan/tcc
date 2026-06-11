@@ -5,7 +5,7 @@ package app
 import (
 	"fmt"
 	"os"
-
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -58,6 +58,10 @@ type Model struct {
 	startDir     string
 	settingsFile string
 	stopWatcher  func()
+
+	cfg       config.Config
+	mouseOn   bool  // mouse tracking currently mirrored to the real terminal
+	tabBounds []int // tab bar layout: end column (1-based) of each tab
 }
 
 func Run(args []string) error {
@@ -80,10 +84,12 @@ func Run(args []string) error {
 		return err
 	}
 
+	cfg := config.LoadConfig()
 	m := &Model{
-		router:       term.NewRouter(),
+		router:       term.NewRouter(cfg.PrefixByte()),
 		startDir:     dir,
 		settingsFile: settingsFile,
+		cfg:          cfg,
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithInput(m.router))
@@ -92,12 +98,16 @@ func Run(args []string) error {
 	m.router.OnPrefix(func() {
 		p.Send(prefixMsg{})
 	})
+	m.router.OnTabClick(func(col int) {
+		p.Send(tabClickMsg{col: col})
+	})
 	go m.router.Run()
 
 	stateDir, err := config.StateDir()
 	if err != nil {
 		return err
 	}
+	cleanStaleState(stateDir)
 	m.stopWatcher, err = status.Watch(stateDir, func(ev status.HookEvent) {
 		p.Send(hookEventMsg{ev})
 	})
@@ -115,6 +125,20 @@ func Run(args []string) error {
 	}
 	debugf("app.Run exiting")
 	return err
+}
+
+// cleanStaleState removes hook state files from previous ctmux runs.
+func cleanStaleState(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-24 * time.Hour)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 // writeHooksSettings writes the --settings file pointing hooks at this
@@ -187,6 +211,7 @@ func (m *Model) spawnWith(opts session.SpawnOptions, title string) error {
 	tabID := s.TabID
 	s.OnDamage = func() { m.program.Send(damageMsg{tabID: tabID}) }
 	s.OnExit = func(code int) { m.program.Send(sessionExitMsg{tabID: tabID, code: code}) }
+	s.OnBell = func() { m.program.Send(bellMsg{tabID: tabID}) }
 
 	if err := s.Start(m.width, m.bodyRows()); err != nil {
 		return err
@@ -264,7 +289,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tickCmd()
+		cmds := []tea.Cmd{tickCmd()}
+		// Mirror the active session's mouse-tracking wish onto the real
+		// terminal so wheel/clicks reach Claude (row-shifted by the router).
+		want := false
+		if t := m.activeTab(); t != nil && t.Term != nil && !t.Exited() {
+			want = t.Term.MouseWanted()
+		}
+		if want != m.mouseOn {
+			m.mouseOn = want
+			if want {
+				cmds = append(cmds, tea.EnableMouseAllMotion)
+			} else {
+				cmds = append(cmds, tea.DisableMouse)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
+	case bellMsg:
+		ringBell()
+		return m, nil
+
+	case tabClickMsg:
+		for i, end := range m.tabBounds {
+			if msg.col <= end {
+				m.setActive(i)
+				break
+			}
+		}
+		return m, nil
 
 	case prefixMsg:
 		// Router already switched itself to chrome mode.
@@ -285,6 +338,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if st, ok := status.FromHookEvent(msg.ev.Event); ok && !t.Exited() {
 				t.status = st
 				t.detail = msg.ev.Message
+				// A background tab asking for input deserves a bell.
+				if st == status.NeedsInput && m.activeTab() != t {
+					ringBell()
+				}
 			}
 			if msg.ev.SessionID != "" {
 				t.SessionID = msg.ev.SessionID
@@ -360,8 +417,9 @@ func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, cmd
 		}
-	case "ctrl+q":
-		m.router.SendToActive([]byte{term.PrefixByte})
+	case "ctrl+" + string('a'+rune(m.router.Prefix())-1):
+		// Prefix twice sends a literal prefix byte to the session.
+		m.router.SendToActive([]byte{m.router.Prefix()})
 	default:
 		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 			m.setActive(int(key[0] - '1'))
@@ -411,6 +469,11 @@ func (m *Model) View() string {
 	}
 
 	return m.tabBar() + "\n" + strings.Join(lines, "\n")
+}
+
+// ringBell rings the real terminal's bell. A raw BEL byte is layout-safe.
+func ringBell() {
+	_, _ = os.Stdout.Write([]byte{7})
 }
 
 // overlayLine replaces the last line of body with a centered notice.
