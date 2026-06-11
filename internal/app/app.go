@@ -30,9 +30,10 @@ type tab struct {
 type uiMode int
 
 const (
-	uiSession   uiMode = iota // stdin routed to the active PTY
-	uiChord                   // prefix pressed, awaiting chord key
-	uiDirPrompt               // "new tab" directory prompt
+	uiSession      uiMode = iota // stdin routed to the active PTY
+	uiChord                      // prefix pressed, awaiting chord key
+	uiDirPrompt                  // "new tab" directory prompt
+	uiResumePicker               // resume-a-session list
 )
 
 type Model struct {
@@ -49,6 +50,7 @@ type Model struct {
 	quitting bool
 
 	dirPrompt *dirPrompt
+	resume    *resumePicker
 
 	startDir     string
 	settingsFile string
@@ -204,6 +206,7 @@ func (m *Model) setActive(i int) {
 func (m *Model) enterSessionMode() {
 	m.mode = uiSession
 	m.dirPrompt = nil
+	m.resume = nil
 	m.router.SetMode(term.ModeSession)
 }
 
@@ -291,6 +294,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleChord(msg)
 		case uiDirPrompt:
 			return m.handleDirPrompt(msg)
+		case uiResumePicker:
+			return m.handleResumePicker(msg)
 		default:
 			// Bytes that raced into chrome mode while returning to session
 			// mode: forward printable runes rather than dropping them.
@@ -317,6 +322,10 @@ func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.mode = uiDirPrompt
 		m.dirPrompt = newDirPrompt(m.startDir)
+		return m, nil
+	case "r":
+		m.mode = uiResumePicker
+		m.resume = newResumePicker(m.width, m.bodyRows())
 		return m, nil
 	case "n", "tab":
 		m.setActive((m.active + 1) % max(len(m.sessions), 1))
@@ -352,6 +361,8 @@ func (m *Model) View() string {
 	switch {
 	case m.mode == uiDirPrompt && m.dirPrompt != nil:
 		body = m.dirPrompt.view(m.width, rows)
+	case m.mode == uiResumePicker && m.resume != nil:
+		body = m.resume.view(m.width, rows)
 	default:
 		if t := m.activeTab(); t != nil && t.Term != nil {
 			body = t.Term.View()
