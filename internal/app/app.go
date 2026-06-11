@@ -386,7 +386,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	return m, nil
+	// Anything else (FilterMatchesMsg, spinner ticks, cursor blinks, …) is a
+	// component message for whichever overlay is open — bubbles/list filters
+	// asynchronously, so dropping these breaks filtering entirely.
+	return m.forwardToOverlay(msg)
+}
+
+// forwardToOverlay routes component messages to the active picker/prompt.
+func (m *Model) forwardToOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch m.mode {
+	case uiDirPrompt:
+		if d := m.dirPrompt; d != nil {
+			if d.manual {
+				d.input, cmd = d.input.Update(msg)
+			} else {
+				d.list, cmd = d.list.Update(msg)
+			}
+		}
+	case uiResumePicker:
+		if m.resume != nil {
+			m.resume.list, cmd = m.resume.list.Update(msg)
+		}
+	case uiAgentsPicker:
+		if m.agents != nil {
+			m.agents.list, cmd = m.agents.list.Update(msg)
+		}
+	}
+	return m, cmd
 }
 
 // handleChord processes the key after the Ctrl+Q prefix.
