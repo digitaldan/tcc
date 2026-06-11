@@ -9,8 +9,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/dcunningham/ctmux/internal/config"
-	"github.com/dcunningham/ctmux/internal/status"
+	"github.com/digitaldan/ctmux/internal/config"
+	"github.com/digitaldan/ctmux/internal/status"
 )
 
 // payload is the subset of Claude Code's hook stdin JSON that ctmux uses.

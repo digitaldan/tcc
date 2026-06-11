@@ -10,8 +10,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/dcunningham/ctmux/internal/config"
-	"github.com/dcunningham/ctmux/internal/status"
+	"github.com/digitaldan/ctmux/internal/config"
+	"github.com/digitaldan/ctmux/internal/status"
 )
 
 // Agent is a Claude Code background session managed by the daemon.

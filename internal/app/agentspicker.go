@@ -7,8 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/dcunningham/ctmux/internal/claude"
-	"github.com/dcunningham/ctmux/internal/session"
+	"github.com/digitaldan/ctmux/internal/claude"
+	"github.com/digitaldan/ctmux/internal/session"
 )
 
 // agentItem adapts a background agent to bubbles/list.

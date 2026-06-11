@@ -1,4 +1,4 @@
-module github.com/dcunningham/ctmux
+module github.com/digitaldan/ctmux
 
 go 1.26.4
 

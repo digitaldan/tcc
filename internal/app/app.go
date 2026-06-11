@@ -12,11 +12,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	xterm "golang.org/x/term"
 
-	"github.com/dcunningham/ctmux/internal/claude"
-	"github.com/dcunningham/ctmux/internal/config"
-	"github.com/dcunningham/ctmux/internal/session"
-	"github.com/dcunningham/ctmux/internal/status"
-	"github.com/dcunningham/ctmux/internal/term"
+	"github.com/digitaldan/ctmux/internal/claude"
+	"github.com/digitaldan/ctmux/internal/config"
+	"github.com/digitaldan/ctmux/internal/session"
+	"github.com/digitaldan/ctmux/internal/status"
+	"github.com/digitaldan/ctmux/internal/term"
 )
 
 // tab couples a session with its UI state.

@@ -13,7 +13,7 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/dcunningham/ctmux/internal/term"
+	"github.com/digitaldan/ctmux/internal/term"
 )
 
 // Kind describes how the session's claude process was started.
