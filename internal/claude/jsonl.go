@@ -21,7 +21,7 @@ type ResumableSession struct {
 	Modified   time.Time
 }
 
-// peekLine is the union of transcript line fields ctmux cares about.
+// peekLine is the union of transcript line fields tcc cares about.
 type peekLine struct {
 	Type        string `json:"type"`
 	AITitle     string `json:"aiTitle"`

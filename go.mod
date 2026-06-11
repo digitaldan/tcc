@@ -1,4 +1,4 @@
-module github.com/digitaldan/ctmux
+module github.com/digitaldan/tcc
 
 go 1.26.4
 

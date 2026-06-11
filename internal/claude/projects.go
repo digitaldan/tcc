@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/digitaldan/ctmux/internal/config"
+	"github.com/digitaldan/tcc/internal/config"
 )
 
 // maxSessions caps how many transcripts are peeked per listing.

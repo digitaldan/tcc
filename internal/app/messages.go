@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/digitaldan/ctmux/internal/claude"
-	"github.com/digitaldan/ctmux/internal/status"
+	"github.com/digitaldan/tcc/internal/claude"
+	"github.com/digitaldan/tcc/internal/status"
 )
 
 // damageMsg signals that a session's screen changed.

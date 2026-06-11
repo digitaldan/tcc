@@ -1,4 +1,4 @@
-// m0harness runs ctmux inside a PTY, captures everything it draws, replays
+// m0harness runs tcc inside a PTY, captures everything it draws, replays
 // the byte stream through a vt emulator, and prints the final screen as
 // plain text — a headless way to verify the M0 rendering gate.
 package main
@@ -15,13 +15,13 @@ import (
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 
-	// side effect: 0x9C-in-OSC parser patch, same as ctmux proper
-	_ "github.com/digitaldan/ctmux/internal/term"
+	// side effect: 0x9C-in-OSC parser patch, same as tcc proper
+	_ "github.com/digitaldan/tcc/internal/term"
 )
 
 func main() {
-	bin := flag.String("bin", "./ctmux", "ctmux binary")
-	dir := flag.String("dir", ".", "working directory for ctmux")
+	bin := flag.String("bin", "./tcc", "tcc binary")
+	dir := flag.String("dir", ".", "working directory for tcc")
 	wait := flag.Duration("wait", 15*time.Second, "time to let claude start")
 	keys := flag.String("keys", "", "bytes to send after wait (supports \\x11 etc. via Go quoting upstream)")
 	cols := flag.Int("cols", 100, "columns")
@@ -69,7 +69,7 @@ func main() {
 			}
 		}
 	}()
-	// Drain emulator responses back to ctmux (it may query the terminal too).
+	// Drain emulator responses back to tcc (it may query the terminal too).
 	go func() { _, _ = io.Copy(f, em) }()
 
 	time.Sleep(*wait)
@@ -113,7 +113,7 @@ func main() {
 	fmt.Println(em.String())
 	fmt.Println("===== END =====")
 
-	// Quit ctmux: Ctrl+Q then d
+	// Quit tcc: Ctrl+Q then d
 	_, _ = f.Write([]byte{0x11})
 	time.Sleep(300 * time.Millisecond)
 	_, _ = f.Write([]byte("d"))

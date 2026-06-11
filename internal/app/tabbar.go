@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/digitaldan/ctmux/internal/status"
+	"github.com/digitaldan/tcc/internal/status"
 )
 
 var (

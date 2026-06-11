@@ -16,11 +16,11 @@ var (
 				Padding(1, 3)
 )
 
-const splashLogo = "      _\n" +
-	"  ___| |_ _ __ ___  _   ___  __\n" +
-	" / __| __| '_ ` _ \\| | | \\ \\/ /\n" +
-	"| (__| |_| | | | | | |_| |>  <\n" +
-	" \\___|\\__|_| |_| |_|\\__,_/_/\\_\\"
+const splashLogo = " _\n" +
+	"| |_ ___ ___\n" +
+	"| __/ __/ __|\n" +
+	"| || (_| (__\n" +
+	" \\__\\___\\___|"
 
 // splashView is shown when no sessions are open.
 func (m *Model) splashView(width, rows int) string {
@@ -31,7 +31,7 @@ func (m *Model) splashView(width, rows int) string {
 	lines := []string{
 		splashTitleStyle.Render(splashLogo),
 		"",
-		splashDimStyle.Render("  tabbed sessions for Claude Code"),
+		splashDimStyle.Render("  Tabbed Claude Code"),
 		"",
 		key("c", "new session         — browse to a directory"),
 		key("r", "resume a session    — pick from past Claude sessions"),

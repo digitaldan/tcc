@@ -27,8 +27,8 @@ type SpawnOptions struct {
 	Attach       string   // daemon short id; runs `claude attach <short>` (no settings/session-id)
 }
 
-// NewClaude builds a Session (not yet started) running claude with ctmux's
-// hook wiring: CTMUX_TAB_ID in the environment and --settings for status
+// NewClaude builds a Session (not yet started) running claude with tcc's
+// hook wiring: TCC_TAB_ID in the environment and --settings for status
 // hooks. Call Start on the result.
 func NewClaude(opts SpawnOptions) *Session {
 	bin := opts.ClaudeBin
@@ -61,7 +61,7 @@ func NewClaude(opts SpawnOptions) *Session {
 
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = opts.Dir
-	cmd.Env = append(os.Environ(), "CTMUX_TAB_ID="+s.TabID)
+	cmd.Env = append(os.Environ(), "TCC_TAB_ID="+s.TabID)
 	s.Cmd = cmd
 
 	if s.Title == "" {

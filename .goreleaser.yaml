@@ -1,9 +1,9 @@
 version: 2
 
-project_name: ctmux
+project_name: tcc
 
 builds:
-  - main: ./cmd/ctmux
+  - main: ./cmd/tcc
     env:
       - CGO_ENABLED=0
     goos:

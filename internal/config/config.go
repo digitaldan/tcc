@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Config is ctmux's user configuration, read from ~/.ctmux/config.toml.
+// Config is tcc's user configuration, read from ~/.tcc/config.toml.
 // Only simple `key = "value"` lines are supported.
 type Config struct {
 	Prefix string // e.g. "ctrl+q", "C-a", "^b"

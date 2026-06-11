@@ -12,11 +12,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	xterm "golang.org/x/term"
 
-	"github.com/digitaldan/ctmux/internal/claude"
-	"github.com/digitaldan/ctmux/internal/config"
-	"github.com/digitaldan/ctmux/internal/session"
-	"github.com/digitaldan/ctmux/internal/status"
-	"github.com/digitaldan/ctmux/internal/term"
+	"github.com/digitaldan/tcc/internal/claude"
+	"github.com/digitaldan/tcc/internal/config"
+	"github.com/digitaldan/tcc/internal/session"
+	"github.com/digitaldan/tcc/internal/status"
+	"github.com/digitaldan/tcc/internal/term"
 )
 
 // tab couples a session with its UI state.
@@ -91,7 +91,7 @@ func Run(args []string) error {
 		cfg:          cfg,
 	}
 
-	// Mouse tracking stays on for ctmux's whole lifetime so tab clicks always
+	// Mouse tracking stays on for tcc's whole lifetime so tab clicks always
 	// work; the router decides per-event what the inner session may see.
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithInput(m.router), tea.WithMouseAllMotion())
 	m.program = p
@@ -131,7 +131,7 @@ func Run(args []string) error {
 	return err
 }
 
-// cleanStaleState removes hook state files from previous ctmux runs.
+// cleanStaleState removes hook state files from previous tcc runs.
 func cleanStaleState(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -272,7 +272,7 @@ func (m *Model) enterSessionMode() {
 	}
 }
 
-// closeTab kills the session and removes its tab. With no tabs left, ctmux
+// closeTab kills the session and removes its tab. With no tabs left, tcc
 // returns to the splash screen.
 func (m *Model) closeTab(i int) {
 	if i < 0 || i >= len(m.sessions) {

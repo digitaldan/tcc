@@ -8,7 +8,7 @@ import (
 )
 
 // HookEvent is one hook invocation, as persisted to a per-tab state file by
-// `ctmux _hook` and consumed by the watcher.
+// `tcc _hook` and consumed by the watcher.
 type HookEvent struct {
 	TabID          string `json:"tab_id"`
 	SessionID      string `json:"session_id"`

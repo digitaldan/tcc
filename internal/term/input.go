@@ -18,7 +18,7 @@ const (
 	ModeChrome
 )
 
-// DefaultPrefix is the ctmux prefix key: Ctrl+Q (DC1, 0x11). Safe because raw
+// DefaultPrefix is the tcc prefix key: Ctrl+Q (DC1, 0x11). Safe because raw
 // mode disables IXON flow control and Claude Code does not bind Ctrl+Q.
 const DefaultPrefix = 0x11
 

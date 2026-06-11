@@ -13,7 +13,7 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/digitaldan/ctmux/internal/term"
+	"github.com/digitaldan/tcc/internal/term"
 )
 
 // Kind describes how the session's claude process was started.
@@ -26,7 +26,7 @@ const (
 )
 
 type Session struct {
-	TabID     string // ctmux tab UUID; keys hook state files
+	TabID     string // tcc tab UUID; keys hook state files
 	SessionID string // claude session UUID (pre-assigned or learned from hooks)
 	Title     string
 	Dir       string

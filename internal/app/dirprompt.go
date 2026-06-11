@@ -12,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/digitaldan/ctmux/internal/claude"
-	"github.com/digitaldan/ctmux/internal/session"
+	"github.com/digitaldan/tcc/internal/claude"
+	"github.com/digitaldan/tcc/internal/session"
 )
 
 var (

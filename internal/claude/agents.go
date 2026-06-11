@@ -11,8 +11,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/digitaldan/ctmux/internal/config"
-	"github.com/digitaldan/ctmux/internal/status"
+	"github.com/digitaldan/tcc/internal/config"
+	"github.com/digitaldan/tcc/internal/status"
 )
 
 // Agent is a Claude Code background session managed by the daemon.
@@ -247,7 +247,7 @@ func WaitAgentGone(sessionID string, timeout time.Duration) bool {
 	return false
 }
 
-// StateFromJob maps a daemon job state onto ctmux's status model.
+// StateFromJob maps a daemon job state onto tcc's status model.
 func StateFromJob(state string) (status.State, bool) {
 	switch state {
 	case "working":

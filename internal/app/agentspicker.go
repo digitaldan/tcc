@@ -8,15 +8,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/digitaldan/ctmux/internal/claude"
-	"github.com/digitaldan/ctmux/internal/session"
-	"github.com/digitaldan/ctmux/internal/status"
+	"github.com/digitaldan/tcc/internal/claude"
+	"github.com/digitaldan/tcc/internal/session"
+	"github.com/digitaldan/tcc/internal/status"
 )
 
 // agentItem adapts a background agent to bubbles/list.
 type agentItem struct{ a claude.Agent }
 
-// agentState maps the agent onto ctmux's status model for glyphs/colors.
+// agentState maps the agent onto tcc's status model for glyphs/colors.
 func (i agentItem) agentState() status.State {
 	if st, ok := claude.StateFromJob(i.a.State); ok {
 		return st

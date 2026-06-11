@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-// hookEvents are the events ctmux subscribes to for status tracking.
+// hookEvents are the events tcc subscribes to for status tracking.
 // PreToolUse/PostToolUse are deliberately omitted: a subprocess per tool call
 // buys little — busy is already implied by UserPromptSubmit-without-Stop.
 var hookEvents = []string{
@@ -23,7 +23,7 @@ var hookEvents = []string{
 // WriteHooksSettings writes the settings file passed to claude via
 // --settings. Claude Code merges it with the user's own settings, so their
 // hooks keep firing alongside ours.
-func WriteHooksSettings(path, ctmuxBin string) error {
+func WriteHooksSettings(path, tccBin string) error {
 	type hook struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
@@ -34,7 +34,7 @@ func WriteHooksSettings(path, ctmuxBin string) error {
 
 	hooks := map[string][]matcher{}
 	for _, ev := range hookEvents {
-		hooks[ev] = []matcher{{Hooks: []hook{{Type: "command", Command: ctmuxBin + " _hook"}}}}
+		hooks[ev] = []matcher{{Hooks: []hook{{Type: "command", Command: tccBin + " _hook"}}}}
 	}
 
 	data, err := json.MarshalIndent(map[string]any{"hooks": hooks}, "", "  ")
