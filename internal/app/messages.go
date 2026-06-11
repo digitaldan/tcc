@@ -37,3 +37,11 @@ type tabClickMsg struct{ col int }
 
 // tabNavMsg reports a Ctrl+Shift+Left/Right tab switch (-1 / +1).
 type tabNavMsg struct{ delta int }
+
+// agentStoppedMsg signals that a background worker was stopped and its
+// session can now be resumed interactively with full history.
+type agentStoppedMsg struct {
+	sessionID string
+	dir       string
+	title     string
+}

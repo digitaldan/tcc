@@ -14,18 +14,29 @@ import (
 	"github.com/digitaldan/ctmux/internal/session"
 )
 
-// resumeItem adapts a ResumableSession to bubbles/list.
-type resumeItem struct{ rs claude.ResumableSession }
+// resumeItem adapts a ResumableSession to bubbles/list. live is non-nil when
+// the session is currently running as a background worker — resuming then
+// requires stopping the worker first (claude refuses otherwise).
+type resumeItem struct {
+	rs   claude.ResumableSession
+	live *claude.Agent
+}
 
 func (i resumeItem) Title() string {
 	t := i.rs.Title
-	if i.rs.Background {
+	switch {
+	case i.live != nil:
+		t = "● " + t
+	case i.rs.Background:
 		t += "  (bg)"
 	}
 	return t
 }
 
 func (i resumeItem) Description() string {
+	if i.live != nil {
+		return "running as background agent — enter stops it and resumes here"
+	}
 	dir := shortenHome(i.rs.Dir)
 	branch := ""
 	if i.rs.GitBranch != "" {
@@ -37,14 +48,21 @@ func (i resumeItem) Description() string {
 func (i resumeItem) FilterValue() string { return i.rs.Title + " " + i.rs.Dir }
 
 type resumePicker struct {
-	list list.Model
+	list     list.Model
+	stopping bool // a background worker is being stopped before resume
 }
 
 func newResumePicker(width, height int) *resumePicker {
 	sessions := claude.ListSessions()
+	active := claude.ActiveAgentsBySession()
 	items := make([]list.Item, 0, len(sessions))
 	for _, rs := range sessions {
-		items = append(items, resumeItem{rs})
+		item := resumeItem{rs: rs}
+		if a, ok := active[rs.SessionID]; ok {
+			a := a
+			item.live = &a
+		}
+		items = append(items, item)
 	}
 
 	d := list.NewDefaultDelegate()
@@ -70,6 +88,11 @@ func (m *Model) handleResumePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			rs := item.rs
+			if item.live != nil {
+				// Worker must be stopped before the session can be resumed.
+				m.resume.stopping = true
+				return m, stopAndResume(*item.live, rs.Dir, rs.Title)
+			}
 			dir := rs.Dir
 			if _, err := os.Stat(dir); err != nil {
 				dir, _ = os.Getwd() // directory vanished; resume from cwd
@@ -86,6 +109,10 @@ func (m *Model) handleResumePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (p *resumePicker) view(width, rows int) string {
+	if p.stopping {
+		return lipgloss.NewStyle().Padding(2, 4).
+			Render("stopping background agent, then resuming with history…")
+	}
 	p.list.SetSize(min(width-4, 100), rows-2)
 	return lipgloss.NewStyle().Padding(1, 2).Render(p.list.View())
 }

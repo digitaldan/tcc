@@ -347,6 +347,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case damageMsg:
 		return m, nil // re-render
 
+	case agentStoppedMsg:
+		dir := msg.dir
+		if _, err := os.Stat(dir); err != nil {
+			dir = m.startDir
+		}
+		if err := m.spawn(dir, []string{"--resume", msg.sessionID}, session.KindResumed, tabTitle(msg.title)); err == nil {
+			m.enterSessionMode()
+		}
+		return m, nil
+
 	case jobStateMsg:
 		if t := m.tabByID(msg.tabID); t != nil {
 			t.applyJobState(msg.js)
@@ -516,6 +526,16 @@ func (m *Model) View() string {
 	}
 
 	return m.tabBar() + "\n" + strings.Join(lines, "\n")
+}
+
+// stopAndResume stops a background worker, waits for the daemon to release
+// the session, and reports readiness to resume it with full history.
+func stopAndResume(a claude.Agent, dir, title string) tea.Cmd {
+	return func() tea.Msg {
+		_ = claude.StopAgent(a.Short)
+		claude.WaitAgentGone(a.SessionID, 5*time.Second)
+		return agentStoppedMsg{sessionID: a.SessionID, dir: dir, title: title}
+	}
 }
 
 // ringBell rings the real terminal's bell. A raw BEL byte is layout-safe.

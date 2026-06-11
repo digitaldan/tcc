@@ -9,10 +9,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
+
+	// side effect: 0x9C-in-OSC parser patch, same as ctmux proper
+	_ "github.com/digitaldan/ctmux/internal/term"
 )
 
 func main() {
@@ -23,9 +27,15 @@ func main() {
 	cols := flag.Int("cols", 100, "columns")
 	rows := flag.Int("rows", 30, "rows")
 	rawOut := flag.String("raw", "", "file to append all captured PTY output bytes to")
+	argsFlag := flag.String("binargs", "", "space-separated arguments for the binary")
 	flag.Parse()
 
-	cmd := exec.Command(*bin)
+	var binArgs []string
+	if *argsFlag != "" {
+		binArgs = strings.Fields(*argsFlag)
+	}
+
+	cmd := exec.Command(*bin, binArgs...)
 	cmd.Dir = *dir
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 
@@ -81,6 +91,11 @@ func main() {
 			_, _ = f.Write([]byte{0x11})
 		case "CTRLU":
 			_, _ = f.Write([]byte{0x15})
+		case "NUDGE":
+			// Force a SIGWINCH repaint: shrink one column, restore.
+			_ = pty.Setsize(f, &pty.Winsize{Rows: uint16(*rows), Cols: uint16(*cols - 1)})
+			time.Sleep(80 * time.Millisecond)
+			_ = pty.Setsize(f, &pty.Winsize{Rows: uint16(*rows), Cols: uint16(*cols)})
 		case "SNAP":
 			fmt.Println("===== SCREEN =====")
 			fmt.Println(em.String())

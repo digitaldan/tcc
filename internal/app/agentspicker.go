@@ -28,7 +28,11 @@ func (i agentItem) Title() string {
 }
 
 func (i agentItem) Description() string {
-	d := fmt.Sprintf("%s · %s", i.a.State, shortenHome(i.a.CWD))
+	state := i.a.State
+	if state == "" {
+		state = i.a.Status
+	}
+	d := fmt.Sprintf("%s · %s", state, shortenHome(i.a.CWD))
 	if i.a.WaitingFor != "" {
 		d += " · waiting: " + i.a.WaitingFor
 	}
@@ -38,7 +42,8 @@ func (i agentItem) Description() string {
 func (i agentItem) FilterValue() string { return i.a.Name + " " + i.a.CWD + " " + i.a.Short }
 
 type agentsPicker struct {
-	list list.Model
+	list     list.Model
+	stopping bool // a worker is being stopped before resuming with history
 }
 
 func newAgentsPicker(width, height int) *agentsPicker {
@@ -49,7 +54,7 @@ func newAgentsPicker(width, height int) *agentsPicker {
 	}
 
 	l := list.New(items, list.NewDefaultDelegate(), width, height)
-	l.Title = "background agents"
+	l.Title = "background agents — enter: attach live view · s: stop & resume with history"
 	l.SetShowStatusBar(false)
 	l.DisableQuitKeybindings()
 	return &agentsPicker{list: l}
@@ -69,6 +74,17 @@ func (m *Model) handleAgentsPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.attachAgent(item.a)
 			return m, nil
+		case "s":
+			item, ok := m.agents.list.SelectedItem().(agentItem)
+			if !ok || item.a.SessionID == "" {
+				return m, nil
+			}
+			title := item.a.Name
+			if title == "" {
+				title = item.a.Short
+			}
+			m.agents.stopping = true
+			return m, stopAndResume(item.a, item.a.CWD, title)
 		}
 	}
 	var cmd tea.Cmd
@@ -105,6 +121,10 @@ func (m *Model) attachAgent(a claude.Agent) {
 }
 
 func (p *agentsPicker) view(width, rows int) string {
+	if p.stopping {
+		return lipgloss.NewStyle().Padding(2, 4).
+			Render("stopping background agent, then resuming with history…")
+	}
 	p.list.SetSize(min(width-4, 100), rows-2)
 	return lipgloss.NewStyle().Padding(1, 2).Render(p.list.View())
 }

@@ -46,6 +46,8 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 | `^Q ^Q` | Send a literal Ctrl+Q to the session |
 | `Esc` | Cancel the prefix or any picker |
 
+In the background-agents picker, `Enter` attaches to the worker's **live view** — note this shows the worker's current screen only, not past conversation (that's how `claude attach` works; a `/background`ed session's screen starts fresh). Press `s` instead to **stop the worker and resume the session here with full history**. The resume picker handles this automatically: sessions currently running as background agents are marked with ● and `Enter` stops the worker before resuming (a bare `claude --resume` would refuse).
+
 Attached background agents get their status from the daemon's job state (`~/.claude/jobs/<id>/state.json`) since hooks can't be injected into an already-running worker. Closing an attach tab leaves the worker running.
 
 A bell rings when a background tab needs your input.

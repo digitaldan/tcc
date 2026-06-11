@@ -113,6 +113,17 @@ func (s *Session) Start(cols, rows int) error {
 		}
 	}()
 
+	// Attached daemon workers only repaint on demand; nudge them so the tab
+	// isn't blank until the worker next produces output.
+	if s.Kind == KindAttached {
+		go func() {
+			for _, d := range []time.Duration{1200 * time.Millisecond, 2500 * time.Millisecond} {
+				time.Sleep(d)
+				s.Nudge()
+			}
+		}()
+	}
+
 	// exit watcher
 	go func() {
 		err := s.Cmd.Wait()
@@ -142,6 +153,21 @@ func (s *Session) Resize(cols, rows int) {
 	if s.Term != nil {
 		s.Term.Resize(cols, rows)
 	}
+}
+
+// Nudge forces the child to repaint by resizing its PTY one column narrower
+// and back (SIGWINCH).
+func (s *Session) Nudge() {
+	if s.PTY == nil || s.exited.Load() {
+		return
+	}
+	sz, err := pty.GetsizeFull(s.PTY)
+	if err != nil || sz.Cols < 2 {
+		return
+	}
+	_ = pty.Setsize(s.PTY, &pty.Winsize{Rows: sz.Rows, Cols: sz.Cols - 1})
+	time.Sleep(60 * time.Millisecond)
+	_ = pty.Setsize(s.PTY, sz)
 }
 
 // Close terminates the child (SIGTERM, then SIGKILL after a grace period)

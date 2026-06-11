@@ -110,6 +110,39 @@ func listAgentsFromFiles() []Agent {
 	return out
 }
 
+// ActiveAgentsBySession returns the live daemon workers keyed by their
+// Claude session ID, read from the roster files (fast; no subprocess).
+func ActiveAgentsBySession() map[string]Agent {
+	out := map[string]Agent{}
+	for _, a := range listAgentsFromFiles() {
+		if a.SessionID != "" {
+			out[a.SessionID] = a
+		}
+	}
+	return out
+}
+
+// StopAgent stops a background worker via `claude stop`. The conversation is
+// kept and becomes resumable interactively.
+func StopAgent(short string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "claude", "stop", short).Run()
+}
+
+// WaitAgentGone polls the roster until the session's worker disappears (or
+// the timeout passes). Returns true if the worker is gone.
+func WaitAgentGone(sessionID string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, ok := ActiveAgentsBySession()[sessionID]; !ok {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
+}
+
 // StateFromJob maps a daemon job state onto ctmux's status model.
 func StateFromJob(state string) (status.State, bool) {
 	switch state {
