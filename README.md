@@ -41,7 +41,9 @@ git clone https://github.com/digitaldan/tcc && cd tcc
 go build -o tcc ./cmd/tcc
 ```
 
-Requires the [`claude` CLI](https://claude.com/claude-code) on PATH. macOS and Linux (including WSL).
+Requires the [`claude` CLI](https://claude.com/claude-code) on PATH. Supported platforms: **macOS** and **Linux**.
+
+**Windows**: there is no native Windows binary — use [WSL](https://learn.microsoft.com/windows/wsl/) and run the **Linux** release binary (`tcc_*_linux_amd64.tar.gz` or `linux_arm64`) inside it, alongside Claude Code installed in the same WSL environment. Native Windows (ConPTY) support would need a different PTY backend and is not currently planned.
 
 ## Use
 
@@ -85,6 +87,7 @@ prefix = "ctrl+a"   # default: ctrl+q
 ## Notes & limitations
 
 - One row of terminal height is reserved for the tab bar; sessions believe the terminal is one row shorter.
+- No native Windows build: tcc relies on Unix pseudo-terminals. On Windows, run the Linux binary under WSL (works fully, including mouse and status badges, in Windows Terminal).
 - Scrollback/copy-mode for past output isn't implemented yet — Claude Code's own transcript scrolling works as usual.
 - `tcc _hook` is the hidden subcommand Claude Code invokes; it exits silently when run outside a tcc session.
 - Claude Code's hook/session/agent file formats are not a stable public API; tcc degrades gracefully when they change, but a Claude Code update may occasionally need a tcc update to match.
