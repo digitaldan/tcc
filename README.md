@@ -1,5 +1,9 @@
 # tcc — Tabbed Claude Code
 
+[![CI](https://github.com/digitaldan/tcc/actions/workflows/ci.yml/badge.svg)](https://github.com/digitaldan/tcc/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/digitaldan/tcc)](https://github.com/digitaldan/tcc/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A tabbed terminal manager for [Claude Code](https://claude.com/claude-code) sessions — like tmux, but purpose-built around Claude. One window, one tab per Claude session, with live status badges showing which session is thinking, which one is waiting on you, and which one hit an error.
 
 ```
@@ -13,19 +17,31 @@ A tabbed terminal manager for [Claude Code](https://claude.com/claude-code) sess
    ✶ busy   ● needs input   ○ idle   ◌ starting   ✕ error   ▢ exited
 ```
 
-## How it works
+## Features
 
-- **Embedded terminals, no tmux required.** Each `claude` child runs in its own PTY, parsed by an embedded terminal emulator ([charmbracelet/x/vt](https://github.com/charmbracelet/x)). The active tab's screen renders below a one-row tab bar; background sessions keep running and stay renderable for instant switching.
-- **Status from Claude Code's own hooks.** tcc passes each session `--settings ~/.tcc/hooks-settings.json` (merged by Claude with your own settings — they're untouched), registering `tcc _hook` for `SessionStart`, `UserPromptSubmit`, `Stop`, `StopFailure`, `PermissionRequest`, `Notification`, and `SessionEnd`. The hook writes one small state file per tab; tcc watches the directory and updates badges in real time. No polling, no output scraping.
-- **Raw input passthrough.** Keystrokes are forwarded to the active session byte-for-byte (no re-encoding), so paste, ESC, Ctrl+C, and modifier chords behave exactly as they would in a bare terminal. Mouse tracking is always on: clicks on the tab bar switch tabs, and session-area reports are row-shifted and forwarded only at the level the inner session actually requested (clicks / drags / hover).
+- **Tabs for parallel Claude sessions** — spawn sessions in any directory, switch instantly (`Ctrl+Shift+←/→`, number keys, or click a tab)
+- **Live status without polling** — tab badges driven by Claude Code's own hook events: busy, idle, waiting for permission/input, errored
+- **Resume anything** — a filterable picker over your past sessions (`~/.claude/projects/`) with their titles, projects, and ages
+- **Background agents, first-class** — see live *and* completed agents like Claude's agent view; attach to a running worker, or stop it and pull the conversation into the foreground with full history
+- **A bell when a background tab needs you**
+- **Single static binary** — no tmux, no daemons of its own, no config required
 
 ## Install
 
+Download a binary from the [latest release](https://github.com/digitaldan/tcc/releases/latest), or:
+
 ```sh
-go build -o tcc ./cmd/tcc   # Go 1.22+
+go install github.com/digitaldan/tcc/cmd/tcc@latest
 ```
 
-Requires the `claude` CLI on PATH. macOS and Linux (incl. WSL).
+Or build from source (Go 1.22+):
+
+```sh
+git clone https://github.com/digitaldan/tcc && cd tcc
+go build -o tcc ./cmd/tcc
+```
+
+Requires the [`claude` CLI](https://claude.com/claude-code) on PATH. macOS and Linux (including WSL).
 
 ## Use
 
@@ -46,11 +62,17 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 | `^Q ^Q` | Send a literal Ctrl+Q to the session |
 | `Esc` | Cancel the prefix or any picker |
 
-In the background-agents picker, `Enter` is state-aware: a **live** agent attaches as a live view (the worker's current screen — `claude attach` doesn't repaint past conversation), while a **finished** agent resumes its conversation with full history. Press `s` on a live agent to stop its worker and resume with history instead. The resume picker handles live workers automatically: sessions currently running as background agents are marked with ● and `Enter` stops the worker before resuming (a bare `claude --resume` would refuse).
+### Background agents
 
-Attached background agents get their status from the daemon's job state (`~/.claude/jobs/<id>/state.json`) since hooks can't be injected into an already-running worker. Closing an attach tab detaches without killing the worker.
+In the agents picker, `Enter` is state-aware: a **live** agent attaches as a live view (the worker's current screen — `claude attach` doesn't repaint past conversation), while a **finished** agent resumes its conversation with full history. Press `s` on a live agent to stop its worker and resume with history instead. The resume picker handles live workers automatically: sessions currently running as background agents are marked with ● and `Enter` stops the worker before resuming (a bare `claude --resume` would refuse).
 
-A bell rings when a background tab needs your input.
+Attached agents get their status from the daemon's job state (`~/.claude/jobs/<id>/state.json`) since hooks can't be injected into an already-running worker. Closing an attach tab detaches without killing the worker.
+
+## How it works
+
+- **Embedded terminals, no tmux required.** Each `claude` child runs in its own PTY, parsed by an embedded terminal emulator ([charmbracelet/x/vt](https://github.com/charmbracelet/x)). The active tab's screen renders below a one-row tab bar; background sessions keep running and stay renderable for instant switching.
+- **Status from Claude Code's own hooks.** tcc passes each session `--settings ~/.tcc/hooks-settings.json` (merged by Claude with your own settings — they're untouched), registering `tcc _hook` for `SessionStart`, `UserPromptSubmit`, `Stop`, `StopFailure`, `PermissionRequest`, `Notification`, and `SessionEnd`. The hook writes one small state file per tab; tcc watches the directory and updates badges in real time.
+- **Raw input passthrough.** Keystrokes are forwarded to the active session byte-for-byte (no re-encoding), so paste, ESC, Ctrl+C, and modifier chords behave exactly as they would in a bare terminal. Mouse tracking is always on: clicks on the tab bar switch tabs, and session-area reports are row-shifted and forwarded only at the level the inner session actually requested.
 
 ## Config
 
@@ -65,5 +87,13 @@ prefix = "ctrl+a"   # default: ctrl+q
 - One row of terminal height is reserved for the tab bar; sessions believe the terminal is one row shorter.
 - Scrollback/copy-mode for past output isn't implemented yet — Claude Code's own transcript scrolling works as usual.
 - `tcc _hook` is the hidden subcommand Claude Code invokes; it exits silently when run outside a tcc session.
-- Upstream quirk worked around in `internal/term/ansipatch.go`: `x/ansi` treats a raw `0x9C` byte inside OSC strings as the 8-bit string terminator, which corrupts UTF-8 titles like Claude's `✳ Claude Code` (worth an upstream issue/PR).
-- `hack/m0harness` runs tcc headlessly inside a PTY and replays its output through a second emulator — useful for regression-testing rendering without a human at a terminal.
+- Claude Code's hook/session/agent file formats are not a stable public API; tcc degrades gracefully when they change, but a Claude Code update may occasionally need a tcc update to match.
+- Upstream quirk worked around in `internal/term/ansipatch.go`: `x/ansi` treats a raw `0x9C` byte inside OSC strings as the 8-bit string terminator, which corrupts UTF-8 titles like Claude's `✳ Claude Code`.
+
+## Contributing
+
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), including a headless PTY harness for testing rendering changes without a human at a terminal.
+
+## License
+
+[MIT](LICENSE)

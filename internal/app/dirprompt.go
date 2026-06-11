@@ -336,9 +336,9 @@ func (d *dirPrompt) view(width, rows int) string {
 	}
 
 	footer := footerStyle.Render(
-		hereKeyStyle.Render("enter")+footerStyle.Render(": start session in selected dir · ")+
-			hereKeyStyle.Render("→")+footerStyle.Render(": into dir · ")+
-			hereKeyStyle.Render("←")+footerStyle.Render(": up · ~: home · .: hidden · /: filter · e: type path · esc: cancel"))
+		hereKeyStyle.Render("enter") + footerStyle.Render(": start session in selected dir · ") +
+			hereKeyStyle.Render("→") + footerStyle.Render(": into dir · ") +
+			hereKeyStyle.Render("←") + footerStyle.Render(": up · ~: home · .: hidden · /: filter · e: type path · esc: cancel"))
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(header + body + "\n" + footer)
 }
