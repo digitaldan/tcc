@@ -33,18 +33,18 @@ var (
 	footerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 )
 
-// dirItem kinds in the browser list. Every row is a directory to navigate
-// into — opening a session is a separate action (`o`) on the current
-// directory shown in the header.
+// dirItem kinds in the browser list. Enter starts a session in the selected
+// directory; arrows navigate (→ into, ← up).
 const (
 	itemRecent = iota // a recent Claude project directory
-	itemParent        // go up one level
-	itemSubdir        // a subdirectory
+	itemParent        // ../ — go up one level
+	itemHere          // the current directory ("start session here")
+	itemSubdir        // a subdirectory, indented under ../
 )
 
 type dirItem struct {
 	kind int
-	path string // absolute path the item navigates to
+	path string // absolute path the item acts on
 	name string // display name for subdirs
 }
 
@@ -53,9 +53,11 @@ func (i dirItem) Title() string {
 	case itemRecent:
 		return "★ " + filepath.Base(i.path)
 	case itemParent:
-		return "  ../"
+		return "../"
+	case itemHere:
+		return "  ▶ start session here"
 	default:
-		return "  " + i.name + "/"
+		return "    " + i.name + "/"
 	}
 }
 
@@ -64,9 +66,11 @@ func (i dirItem) Description() string {
 	case itemRecent:
 		return "  recent project · " + shortenHome(i.path)
 	case itemParent:
-		return "  up to " + shortenHome(i.path)
+		return "go up to " + shortenHome(i.path)
+	case itemHere:
+		return "    " + shortenHome(i.path)
 	default:
-		return "  " + shortenHome(i.path)
+		return "      " + shortenHome(i.path)
 	}
 }
 
@@ -135,7 +139,8 @@ func recentProjectDirs(cur string, max int) []string {
 	return out
 }
 
-// reload rebuilds the list for curDir.
+// reload rebuilds the list for curDir. Selection lands on the first
+// subdirectory (the "../" and action rows are reachable by arrowing up).
 func (d *dirPrompt) reload() {
 	var items []list.Item
 
@@ -148,6 +153,8 @@ func (d *dirPrompt) reload() {
 	if parent := filepath.Dir(d.curDir); parent != d.curDir {
 		items = append(items, dirItem{kind: itemParent, path: parent})
 	}
+	items = append(items, dirItem{kind: itemHere, path: d.curDir})
+	firstSubdir := len(items)
 
 	entries, err := os.ReadDir(d.curDir)
 	if err != nil {
@@ -174,7 +181,14 @@ func (d *dirPrompt) reload() {
 
 	d.list.SetItems(items)
 	d.list.ResetFilter()
-	d.list.Select(0)
+	switch {
+	case d.atStart:
+		d.list.Select(0) // initial view: recents first
+	case firstSubdir < len(items):
+		d.list.Select(firstSubdir) // first real directory, not ../
+	default:
+		d.list.Select(firstSubdir - 1) // empty dir: the "start here" row
+	}
 }
 
 // navigate moves the browser to dir.
@@ -197,7 +211,7 @@ func (m *Model) handleDirPrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.enterSessionMode()
 			return m, nil
 		case "o":
-			// The only way to start a session: opens the current directory.
+			// Shortcut: start in the current directory regardless of selection.
 			return m.openSessionIn(d.curDir)
 		case "e":
 			d.manual = true
@@ -219,12 +233,25 @@ func (m *Model) handleDirPrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				d.navigate(parent)
 			}
 			return m, nil
-		case "enter", "right", "l":
+		case "right", "l":
 			// Navigation only — never opens a session.
-			if it, ok := d.list.SelectedItem().(dirItem); ok {
+			if it, ok := d.list.SelectedItem().(dirItem); ok && it.kind != itemHere {
 				d.navigate(it.path)
 			}
 			return m, nil
+		case "enter":
+			// Enter picks: start a session in the selected directory.
+			// (On ../ it navigates up — choosing the parent as a session
+			// dir is better done by going there first.)
+			it, ok := d.list.SelectedItem().(dirItem)
+			if !ok {
+				return m, nil
+			}
+			if it.kind == itemParent {
+				d.navigate(it.path)
+				return m, nil
+			}
+			return m.openSessionIn(it.path)
 		}
 	}
 	var cmd tea.Cmd
@@ -297,22 +324,21 @@ func (d *dirPrompt) view(width, rows int) string {
 
 	w := min(width-6, 100)
 
-	// Action section: where the session will open.
+	// Where you are; Enter picks from the list below.
 	header := hereBoxStyle.Width(w).Render(
-		hereKeyStyle.Render("o")+hereDimStyle.Render(" · start a new session in  ")+
-			herePathStyle.Render(shortenHome(d.curDir)),
+		hereDimStyle.Render("new session · in ")+herePathStyle.Render(shortenHome(d.curDir)),
 	) + "\n"
 
-	// Divider between the action and the navigation sections.
-	divider := hereDimStyle.Render(" ── browse ─ pick where to start "+strings.Repeat("─", max(0, w-33))) + "\n"
-
-	d.list.SetSize(w, rows-8)
+	d.list.SetSize(w, rows-7)
 	body := d.list.View()
 	if d.err != "" {
 		body += "\n" + promptErrStyle.Render(d.err)
 	}
 
-	footer := footerStyle.Render("↑/↓: select · enter/→: enter dir · ←: up · ~: home · .: hidden dirs · /: filter · e: type a path · esc: cancel")
+	footer := footerStyle.Render(
+		hereKeyStyle.Render("enter")+footerStyle.Render(": start session in selected dir · ")+
+			hereKeyStyle.Render("→")+footerStyle.Render(": into dir · ")+
+			hereKeyStyle.Render("←")+footerStyle.Render(": up · ~: home · .: hidden · /: filter · e: type path · esc: cancel"))
 
-	return lipgloss.NewStyle().Padding(1, 2).Render(header + divider + body + "\n" + footer)
+	return lipgloss.NewStyle().Padding(1, 2).Render(header + body + "\n" + footer)
 }

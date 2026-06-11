@@ -35,7 +35,7 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 
 | Keys | Action |
 |---|---|
-| `^Q c` | New session — a directory browser opens: arrows/`Enter` navigate (never open), `←` goes up, and `o` starts the session in the directory shown in the header. `★` rows are recent Claude projects. `e` for manual path entry. |
+| `^Q c` | New session — a directory browser opens: `Enter` starts the session in the selected directory, `→` browses into it, `←` goes up (`Enter` on `../` also goes up). The "▶ start session here" row picks the current directory; `★` rows are recent Claude projects; `e` for manual path entry. |
 | `^Q r` | Resume a past session (from `~/.claude/projects/`, with titles) |
 | `^Q a` | Background agents — live and completed, like Claude's agent view |
 | `^Q n` / `^Q p` / `^Q 1–9` | Next / previous / nth tab |
