@@ -1,9 +1,11 @@
 package term
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 )
 
 // Mode selects where raw stdin bytes are routed.
@@ -35,9 +37,11 @@ type Router struct {
 	pending    []byte
 	onPrefix   func()
 	onTabClick func(col int)
+	onTabNav   func(delta int)
 
-	prefix byte
-	carry  []byte // partial mouse-sequence candidate from the previous read
+	prefix     byte
+	carry      []byte       // partial escape-sequence candidate from the previous read
+	mouseLevel atomic.Int32 // highest mouse mode the active session enabled (0 = none)
 
 	stdin io.Reader
 	done  chan struct{}
@@ -66,6 +70,15 @@ func (r *Router) OnPrefix(f func()) { r.onPrefix = f }
 // OnTabClick registers a callback for mouse presses on the tab bar row,
 // reporting the 1-based column.
 func (r *Router) OnTabClick(f func(col int)) { r.onTabClick = f }
+
+// OnTabNav registers a callback for the Ctrl+Shift+Left/Right tab-switch
+// shortcut (-1 / +1).
+func (r *Router) OnTabNav(f func(delta int)) { r.onTabNav = f }
+
+// SetMouseLevel sets the highest mouse-tracking mode the active session has
+// enabled; session-area mouse reports beyond that level are dropped rather
+// than typed into the child as garbage.
+func (r *Router) SetMouseLevel(level int) { r.mouseLevel.Store(int32(level)) }
 
 // SetActive sets the writer (PTY) that receives session-mode bytes.
 func (r *Router) SetActive(w io.Writer) {
@@ -156,6 +169,18 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 		}
 
 		if b == 0x1b {
+			// Tab-switch shortcut: Ctrl+Shift+Left/Right (CSI 1;6 D/C).
+			if delta, n, partial := scanTabNav(p[i:]); delta != 0 {
+				if r.onTabNav != nil {
+					r.onTabNav(delta)
+				}
+				i += n - 1
+				continue
+			} else if partial && n == len(p[i:]) && n >= 2 {
+				r.carry = append([]byte(nil), p[i:]...)
+				return out, nil
+			}
+
 			seq, n, complete := scanSGRMouse(p[i:])
 			if !complete && n == len(p[i:]) && n >= 2 {
 				// Mouse-sequence candidate cut off at the read boundary.
@@ -169,7 +194,7 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 					if r.onTabClick != nil {
 						r.onTabClick(col)
 					}
-				} else if fwd != nil {
+				} else if fwd != nil && r.allowMouseEvent(seq) {
 					out = append(out, fwd...)
 				}
 				i += n - 1
@@ -180,6 +205,58 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 		out = append(out, b)
 	}
 	return out, nil
+}
+
+var (
+	navNext = []byte("\x1b[1;6C") // Ctrl+Shift+Right
+	navPrev = []byte("\x1b[1;6D") // Ctrl+Shift+Left
+)
+
+// scanTabNav matches the Ctrl+Shift+Left/Right escape sequences at the start
+// of p. delta is +1/-1 on a full match. partial=true means p ends mid-way
+// through a possible match (n bytes examined).
+func scanTabNav(p []byte) (delta, n int, partial bool) {
+	for _, c := range [][]byte{navNext, navPrev} {
+		if bytes.HasPrefix(p, c) {
+			if c[len(c)-1] == 'C' {
+				return 1, len(c), false
+			}
+			return -1, len(c), false
+		}
+		if len(p) < len(c) && bytes.HasPrefix(c, p) {
+			return 0, len(p), true
+		}
+	}
+	return 0, 0, false
+}
+
+// allowMouseEvent gates a session-bound SGR report by the mouse level the
+// child actually enabled: hover motion needs 1003, drags need 1002+, and
+// anything at all needs tracking on — otherwise the report would be typed
+// into the child as garbage.
+func (r *Router) allowMouseEvent(seq []byte) bool {
+	level := int(r.mouseLevel.Load())
+	if level == 0 {
+		return false
+	}
+	// seq = ESC [ < b ; ... ; the leading param is the button/modifier code.
+	b := 0
+	for _, c := range seq[3:] {
+		if c < '0' || c > '9' {
+			break
+		}
+		b = b*10 + int(c-'0')
+	}
+	motion := b&32 != 0
+	noButton := b&3 == 3 && b&64 == 0
+	switch {
+	case motion && noButton:
+		return level >= 1003
+	case motion:
+		return level >= 1002
+	default:
+		return true
+	}
 }
 
 // scanSGRMouse checks whether p begins with an SGR mouse report

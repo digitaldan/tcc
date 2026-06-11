@@ -60,7 +60,6 @@ type Model struct {
 	stopWatcher  func()
 
 	cfg       config.Config
-	mouseOn   bool  // mouse tracking currently mirrored to the real terminal
 	tabBounds []int // tab bar layout: end column (1-based) of each tab
 }
 
@@ -92,7 +91,9 @@ func Run(args []string) error {
 		cfg:          cfg,
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithInput(m.router))
+	// Mouse tracking stays on for ctmux's whole lifetime so tab clicks always
+	// work; the router decides per-event what the inner session may see.
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithInput(m.router), tea.WithMouseAllMotion())
 	m.program = p
 
 	m.router.OnPrefix(func() {
@@ -100,6 +101,9 @@ func Run(args []string) error {
 	})
 	m.router.OnTabClick(func(col int) {
 		p.Send(tabClickMsg{col: col})
+	})
+	m.router.OnTabNav(func(delta int) {
+		p.Send(tabNavMsg{delta: delta})
 	})
 	go m.router.Run()
 
@@ -235,6 +239,25 @@ func (m *Model) setActive(i int) {
 	}
 }
 
+// clickTab activates the tab rendered at the given 1-based column.
+func (m *Model) clickTab(col int) {
+	for i, end := range m.tabBounds {
+		if col <= end {
+			m.setActive(i)
+			return
+		}
+	}
+}
+
+// cycleTab moves the active tab by delta, wrapping.
+func (m *Model) cycleTab(delta int) {
+	n := len(m.sessions)
+	if n == 0 {
+		return
+	}
+	m.setActive(((m.active+delta)%n + n) % n)
+}
+
 // enterSessionMode hands stdin back to the active session.
 func (m *Model) enterSessionMode() {
 	m.mode = uiSession
@@ -289,33 +312,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		cmds := []tea.Cmd{tickCmd()}
-		// Mirror the active session's mouse-tracking wish onto the real
-		// terminal so wheel/clicks reach Claude (row-shifted by the router).
-		want := false
+		// Tell the router what mouse events the active session may receive.
+		level := 0
 		if t := m.activeTab(); t != nil && t.Term != nil && !t.Exited() {
-			want = t.Term.MouseWanted()
+			level = t.Term.MouseLevel()
 		}
-		if want != m.mouseOn {
-			m.mouseOn = want
-			if want {
-				cmds = append(cmds, tea.EnableMouseAllMotion)
-			} else {
-				cmds = append(cmds, tea.DisableMouse)
-			}
-		}
-		return m, tea.Batch(cmds...)
+		m.router.SetMouseLevel(level)
+		return m, tickCmd()
 
 	case bellMsg:
 		ringBell()
 		return m, nil
 
 	case tabClickMsg:
-		for i, end := range m.tabBounds {
-			if msg.col <= end {
-				m.setActive(i)
-				break
-			}
+		m.clickTab(msg.col)
+		return m, nil
+
+	case tabNavMsg:
+		m.cycleTab(msg.delta)
+		return m, nil
+
+	case tea.MouseMsg:
+		// Chrome mode only (session-mode mouse never reaches bubbletea):
+		// clicks on the tab bar switch tabs even while a picker is open.
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && msg.Y == 0 {
+			m.clickTab(msg.X + 1)
+			m.enterSessionMode()
 		}
 		return m, nil
 
@@ -436,9 +458,9 @@ func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agents = newAgentsPicker(m.width, m.bodyRows())
 		return m, nil
 	case "n", "tab":
-		m.setActive((m.active + 1) % max(len(m.sessions), 1))
+		m.cycleTab(1)
 	case "p", "shift+tab":
-		m.setActive((m.active - 1 + len(m.sessions)) % max(len(m.sessions), 1))
+		m.cycleTab(-1)
 	case "x":
 		if cmd := m.closeTab(m.active); cmd != nil {
 			m.quitting = true

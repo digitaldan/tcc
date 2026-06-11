@@ -34,3 +34,6 @@ type bellMsg struct{ tabID string }
 
 // tabClickMsg reports a mouse press on the tab bar (1-based column).
 type tabClickMsg struct{ col int }
+
+// tabNavMsg reports a Ctrl+Shift+Left/Right tab switch (-1 / +1).
+type tabNavMsg struct{ delta int }

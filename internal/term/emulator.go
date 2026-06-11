@@ -81,6 +81,21 @@ func (e *Emulator) MouseWanted() bool {
 	return e.mouseWanted()
 }
 
+// MouseLevel returns the highest mouse-tracking mode the child has enabled
+// (9, 1000, 1002, or 1003), or 0 when tracking is off. Used to decide which
+// event kinds to forward.
+func (e *Emulator) MouseLevel() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	level := 0
+	for mode, on := range e.mouseModes {
+		if on && mode > level {
+			level = mode
+		}
+	}
+	return level
+}
+
 // OnBell registers a callback fired when the child rings the terminal bell.
 func (e *Emulator) OnBell(f func()) { e.bell = f }
 

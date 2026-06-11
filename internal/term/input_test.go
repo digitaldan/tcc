@@ -28,7 +28,8 @@ func TestFilterSessionPassthroughAndPrefix(t *testing.T) {
 		t.Fatal("prefix did not switch to chrome mode")
 	}
 
-	// SGR mouse press at row 5 is shifted to row 4.
+	// SGR mouse press at row 5 is shifted to row 4 (session has mouse on).
+	r.SetMouseLevel(1003)
 	out, _ = r.filterSession([]byte("\x1b[<0;10;5M"))
 	if string(out) != "\x1b[<0;10;4M" {
 		t.Fatalf("mouse rewrite broken: %q", out)
@@ -51,6 +52,82 @@ func TestFilterSessionPassthroughAndPrefix(t *testing.T) {
 	out, _ = r.filterSession([]byte("\x1b[A\x1b[1;2B"))
 	if string(out) != "\x1b[A\x1b[1;2B" {
 		t.Fatalf("CSI passthrough broken: %q", out)
+	}
+}
+
+func TestFilterSessionTabNavShortcut(t *testing.T) {
+	r := NewRouter(0)
+	var nav int
+	r.OnTabNav(func(d int) { nav += d })
+
+	// Ctrl+Shift+Right / Left are intercepted, surrounding bytes forwarded.
+	out, _ := r.filterSession([]byte("a\x1b[1;6Cb\x1b[1;6Dc"))
+	if string(out) != "abc" || nav != 0 {
+		t.Fatalf("nav interception broken: out=%q nav=%d", out, nav)
+	}
+
+	out, _ = r.filterSession([]byte("\x1b[1;6C\x1b[1;6C"))
+	if len(out) != 0 || nav != 2 {
+		t.Fatalf("nav delta broken: out=%q nav=%d", out, nav)
+	}
+
+	// Plain Ctrl+Right (modifier 5) is NOT intercepted.
+	out, _ = r.filterSession([]byte("\x1b[1;5C"))
+	if string(out) != "\x1b[1;5C" {
+		t.Fatalf("ctrl+right should pass through: %q", out)
+	}
+
+	// Partial nav candidate at the read boundary is carried.
+	out, _ = r.filterSession([]byte("x\x1b[1;6"))
+	if string(out) != "x" || len(r.carry) == 0 {
+		t.Fatalf("nav carry broken: out=%q carry=%q", out, r.carry)
+	}
+}
+
+func TestMouseLevelGating(t *testing.T) {
+	r := NewRouter(0)
+
+	press := []byte("\x1b[<0;10;5M")
+	hover := []byte("\x1b[<35;10;5M") // motion, no button
+	drag := []byte("\x1b[<32;10;5M")  // motion, left button held
+
+	// Level 0: everything for the session is dropped.
+	out, _ := r.filterSession(press)
+	if len(out) != 0 {
+		t.Fatalf("level 0 should drop presses: %q", out)
+	}
+
+	// Level 1000: presses pass (row-shifted), motion dropped.
+	r.SetMouseLevel(1000)
+	out, _ = r.filterSession(press)
+	if string(out) != "\x1b[<0;10;4M" {
+		t.Fatalf("level 1000 press broken: %q", out)
+	}
+	out, _ = r.filterSession(hover)
+	if len(out) != 0 {
+		t.Fatalf("level 1000 should drop hover: %q", out)
+	}
+	out, _ = r.filterSession(drag)
+	if len(out) != 0 {
+		t.Fatalf("level 1000 should drop drags: %q", out)
+	}
+
+	// Level 1002: drags pass, hover still dropped.
+	r.SetMouseLevel(1002)
+	out, _ = r.filterSession(drag)
+	if string(out) != "\x1b[<32;10;4M" {
+		t.Fatalf("level 1002 drag broken: %q", out)
+	}
+	out, _ = r.filterSession(hover)
+	if len(out) != 0 {
+		t.Fatalf("level 1002 should drop hover: %q", out)
+	}
+
+	// Level 1003: everything passes.
+	r.SetMouseLevel(1003)
+	out, _ = r.filterSession(hover)
+	if string(out) != "\x1b[<35;10;4M" {
+		t.Fatalf("level 1003 hover broken: %q", out)
 	}
 }
 

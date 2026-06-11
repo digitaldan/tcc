@@ -17,7 +17,7 @@ A tabbed terminal manager for [Claude Code](https://claude.com/claude-code) sess
 
 - **Embedded terminals, no tmux required.** Each `claude` child runs in its own PTY, parsed by an embedded terminal emulator ([charmbracelet/x/vt](https://github.com/charmbracelet/x)). The active tab's screen renders below a one-row tab bar; background sessions keep running and stay renderable for instant switching.
 - **Status from Claude Code's own hooks.** ctmux passes each session `--settings ~/.ctmux/hooks-settings.json` (merged by Claude with your own settings — they're untouched), registering `ctmux _hook` for `SessionStart`, `UserPromptSubmit`, `Stop`, `StopFailure`, `PermissionRequest`, `Notification`, and `SessionEnd`. The hook writes one small state file per tab; ctmux watches the directory and updates badges in real time. No polling, no output scraping.
-- **Raw input passthrough.** Keystrokes are forwarded to the active session byte-for-byte (no re-encoding), so paste, ESC, Ctrl+C, and modifier chords behave exactly as they would in a bare terminal. Mouse reports are row-shifted past the tab bar; clicking a tab switches to it.
+- **Raw input passthrough.** Keystrokes are forwarded to the active session byte-for-byte (no re-encoding), so paste, ESC, Ctrl+C, and modifier chords behave exactly as they would in a bare terminal. Mouse tracking is always on: clicks on the tab bar switch tabs, and session-area reports are row-shifted and forwarded only at the level the inner session actually requested (clicks / drags / hover).
 
 ## Install
 
@@ -36,7 +36,9 @@ Run `ctmux` in a project directory — it opens a Claude session there. All comm
 | `^Q c` | New session (pick a directory) |
 | `^Q r` | Resume a past session (from `~/.claude/projects/`, with titles) |
 | `^Q a` | Background agents — attach to a `claude --bg` / agent-view worker |
-| `^Q n` / `^Q p` / `^Q 1–9` | Next / previous / nth tab (or click a tab) |
+| `^Q n` / `^Q p` / `^Q 1–9` | Next / previous / nth tab |
+| `Ctrl+Shift+←` / `Ctrl+Shift+→` | Previous / next tab (no prefix needed) |
+| mouse click on a tab | Switch to it (works any time; hold Option in iTerm for native text selection) |
 | `^Q x` | Close tab (kills the session; attached agents just detach) |
 | `^Q d` | Quit ctmux |
 | `^Q ^Q` | Send a literal Ctrl+Q to the session |
