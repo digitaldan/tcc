@@ -29,7 +29,9 @@ Requires the `claude` CLI on PATH. macOS and Linux (incl. WSL).
 
 ## Use
 
-Run `ctmux` in a project directory — it opens a Claude session there. All commands are behind the **Ctrl+Q** prefix (configurable):
+Run `ctmux` — it starts on a splash screen listing the available commands. There, bare keys work: `c` new session, `r` resume, `a` background agents, `q` quit. When a Claude session exits (e.g. `/exit`), its tab closes itself; closing the last tab returns to the splash screen.
+
+Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 
 | Keys | Action |
 |---|---|

@@ -258,19 +258,25 @@ func (m *Model) cycleTab(delta int) {
 	m.setActive(((m.active+delta)%n + n) % n)
 }
 
-// enterSessionMode hands stdin back to the active session.
+// enterSessionMode hands stdin back to the active session — or, with no
+// sessions open, leaves input with the TUI so the splash screen gets keys.
 func (m *Model) enterSessionMode() {
 	m.mode = uiSession
 	m.dirPrompt = nil
 	m.resume = nil
 	m.agents = nil
-	m.router.SetMode(term.ModeSession)
+	if len(m.sessions) == 0 {
+		m.router.SetMode(term.ModeChrome)
+	} else {
+		m.router.SetMode(term.ModeSession)
+	}
 }
 
-// closeTab kills the session and removes its tab. Quits when none remain.
-func (m *Model) closeTab(i int) tea.Cmd {
+// closeTab kills the session and removes its tab. With no tabs left, ctmux
+// returns to the splash screen.
+func (m *Model) closeTab(i int) {
 	if i < 0 || i >= len(m.sessions) {
-		return nil
+		return
 	}
 	if m.sessions[i].stopJobWatch != nil {
 		m.sessions[i].stopJobWatch()
@@ -278,14 +284,14 @@ func (m *Model) closeTab(i int) tea.Cmd {
 	m.sessions[i].Close()
 	m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
 	if len(m.sessions) == 0 {
-		m.quitting = true
-		return tea.Quit
+		m.router.SetActive(nil)
+		m.enterSessionMode() // chrome mode → splash
+		return
 	}
 	if m.active >= len(m.sessions) {
 		m.active = len(m.sessions) - 1
 	}
 	m.setActive(m.active)
-	return nil
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -297,17 +303,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
-		first := m.width == 0
 		m.width, m.height = msg.Width, msg.Height
 		for _, t := range m.sessions {
 			t.Resize(m.width, m.bodyRows())
-		}
-		if first && len(m.sessions) == 0 {
-			if err := m.spawn(m.startDir, nil, session.KindSpawned, ""); err != nil {
-				m.quitting = true
-				return m, tea.Sequence(tea.Printf("ctmux: failed to start claude: %v", err), tea.Quit)
-			}
-			m.enterSessionMode()
 		}
 		return m, nil
 
@@ -372,16 +370,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionExitMsg:
-		if t := m.tabByID(msg.tabID); t != nil {
-			t.ExitCode = msg.code
-			if msg.code != 0 {
-				t.status = status.Error
-			} else {
-				t.status = status.Exited
+		// A finished session's tab closes itself; with none left, the splash
+		// screen takes over.
+		for i, t := range m.sessions {
+			if t.TabID == msg.tabID {
+				m.closeTab(i)
+				break
 			}
-		}
-		if at := m.activeTab(); at != nil && at.TabID == msg.tabID {
-			m.router.SetActive(nil)
 		}
 		return m, nil
 
@@ -396,6 +391,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case uiAgentsPicker:
 			return m.handleAgentsPicker(msg)
 		default:
+			// Splash screen: bare keys act without the prefix.
+			if len(m.sessions) == 0 {
+				if handled, quit := m.handleSplashKey(msg.String()); quit {
+					m.quitting = true
+					return m, tea.Quit
+				} else if handled {
+					return m, nil
+				}
+				return m, nil
+			}
 			// Bytes that raced into chrome mode while returning to session
 			// mode: forward printable runes rather than dropping them.
 			if m.router.Mode() == term.ModeSession && msg.Type == tea.KeyRunes {
@@ -462,10 +467,7 @@ func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "p", "shift+tab":
 		m.cycleTab(-1)
 	case "x":
-		if cmd := m.closeTab(m.active); cmd != nil {
-			m.quitting = true
-			return m, cmd
-		}
+		m.closeTab(m.active)
 	case "ctrl+" + string('a'+rune(m.router.Prefix())-1):
 		// Prefix twice sends a literal prefix byte to the session.
 		m.router.SendToActive([]byte{m.router.Prefix()})
@@ -499,12 +501,8 @@ func (m *Model) View() string {
 	default:
 		if t := m.activeTab(); t != nil && t.Term != nil {
 			body = t.Term.View()
-			if t.Exited() {
-				body = overlayLine(body, m.width,
-					fmt.Sprintf(" session exited (%d) — ^Q x to close tab, ^Q c for a new one ", t.ExitCode))
-			}
 		} else {
-			body = "no session — press ^Q c to open one"
+			body = m.splashView(m.width, rows)
 		}
 	}
 
@@ -523,19 +521,4 @@ func (m *Model) View() string {
 // ringBell rings the real terminal's bell. A raw BEL byte is layout-safe.
 func ringBell() {
 	_, _ = os.Stdout.Write([]byte{7})
-}
-
-// overlayLine replaces the last line of body with a centered notice.
-func overlayLine(body string, width int, notice string) string {
-	lines := strings.Split(body, "\n")
-	if len(lines) == 0 {
-		return body
-	}
-	style := chordStyle
-	pad := (width - len(notice)) / 2
-	if pad < 0 {
-		pad = 0
-	}
-	lines[len(lines)-1] = strings.Repeat(" ", pad) + style.Render(notice)
-	return strings.Join(lines, "\n")
 }
