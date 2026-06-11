@@ -22,26 +22,34 @@ var (
 			BorderForeground(lipgloss.Color("31")).
 			Padding(0, 1)
 	promptErrStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+
+	hereBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("31")).
+			Padding(0, 2)
+	herePathStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Bold(true)
+	hereKeyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+	hereDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	footerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 )
 
-// dirItem kinds in the browser list.
+// dirItem kinds in the browser list. Every row is a directory to navigate
+// into — opening a session is a separate action (`o`) on the current
+// directory shown in the header.
 const (
-	itemOpenHere = iota // open a session in the browsed directory
-	itemRecent          // a recent Claude project directory; opens directly
-	itemParent          // go up one level
-	itemSubdir          // descend into a subdirectory
+	itemRecent = iota // a recent Claude project directory
+	itemParent        // go up one level
+	itemSubdir        // a subdirectory
 )
 
 type dirItem struct {
 	kind int
-	path string // absolute path the item acts on
+	path string // absolute path the item navigates to
 	name string // display name for subdirs
 }
 
 func (i dirItem) Title() string {
 	switch i.kind {
-	case itemOpenHere:
-		return "▶ start session here"
 	case itemRecent:
 		return "★ " + filepath.Base(i.path)
 	case itemParent:
@@ -53,14 +61,12 @@ func (i dirItem) Title() string {
 
 func (i dirItem) Description() string {
 	switch i.kind {
-	case itemOpenHere:
-		return shortenHome(i.path)
 	case itemRecent:
-		return "recent · " + shortenHome(i.path)
+		return "  recent project · " + shortenHome(i.path)
 	case itemParent:
-		return "up to " + shortenHome(i.path)
+		return "  up to " + shortenHome(i.path)
 	default:
-		return shortenHome(i.path)
+		return "  " + shortenHome(i.path)
 	}
 }
 
@@ -75,8 +81,9 @@ func (i dirItem) FilterValue() string {
 	}
 }
 
-// dirPrompt is the "new tab" overlay: a directory browser with recents and
-// an optional manual path-entry mode.
+// dirPrompt is the "new tab" overlay: a directory browser (navigation only)
+// under a "start session here" header, with an optional manual path-entry
+// mode.
 type dirPrompt struct {
 	list    list.Model
 	curDir  string
@@ -95,7 +102,7 @@ func newDirPrompt(initial string) *dirPrompt {
 	d.recents = recentProjectDirs(initial, 6)
 
 	l := list.New(nil, list.NewDefaultDelegate(), 0, 0)
-	l.Title = "new session — pick a directory"
+	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.DisableQuitKeybindings()
 	d.list = l
@@ -130,8 +137,7 @@ func recentProjectDirs(cur string, max int) []string {
 
 // reload rebuilds the list for curDir.
 func (d *dirPrompt) reload() {
-	d.list.Title = "new session — " + shortenHome(d.curDir)
-	items := []list.Item{dirItem{kind: itemOpenHere, path: d.curDir}}
+	var items []list.Item
 
 	if d.atStart {
 		for _, r := range d.recents {
@@ -190,6 +196,9 @@ func (m *Model) handleDirPrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "ctrl+c":
 			m.enterSessionMode()
 			return m, nil
+		case "o":
+			// The only way to start a session: opens the current directory.
+			return m.openSessionIn(d.curDir)
 		case "e":
 			d.manual = true
 			d.input.SetValue(d.curDir)
@@ -211,25 +220,11 @@ func (m *Model) handleDirPrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter", "right", "l":
-			// Enter and → behave identically everywhere: browse into the
-			// selected directory. The pinned "start session here" row (and
-			// the `o` key) are the only ways to open a session.
-			it, ok := d.list.SelectedItem().(dirItem)
-			if !ok {
-				return m, nil
+			// Navigation only — never opens a session.
+			if it, ok := d.list.SelectedItem().(dirItem); ok {
+				d.navigate(it.path)
 			}
-			if it.kind == itemOpenHere {
-				return m.openSessionIn(it.path)
-			}
-			d.navigate(it.path)
 			return m, nil
-		case "o":
-			// Open a session in the selected directory.
-			it, ok := d.list.SelectedItem().(dirItem)
-			if !ok {
-				return m, nil
-			}
-			return m.openSessionIn(it.path)
 		}
 	}
 	var cmd tea.Cmd
@@ -285,7 +280,8 @@ func expandPath(p string) string {
 	return abs
 }
 
-// view renders the browser (or manual entry) panel.
+// view renders the "start session here" header, a divider, the navigation
+// list, and a key-help footer.
 func (d *dirPrompt) view(width, rows int) string {
 	if d.manual {
 		d.input.Width = max(20, min(width-20, 90))
@@ -299,12 +295,24 @@ func (d *dirPrompt) view(width, rows int) string {
 		return strings.Repeat("\n", pad) + lipgloss.PlaceHorizontal(width, lipgloss.Center, box)
 	}
 
-	d.list.SetSize(min(width-6, 100), rows-4)
+	w := min(width-6, 100)
+
+	// Action section: where the session will open.
+	header := hereBoxStyle.Width(w).Render(
+		hereKeyStyle.Render("o")+hereDimStyle.Render(" · start a new session in  ")+
+			herePathStyle.Render(shortenHome(d.curDir)),
+	) + "\n"
+
+	// Divider between the action and the navigation sections.
+	divider := hereDimStyle.Render(" ── browse ─ pick where to start "+strings.Repeat("─", max(0, w-33))) + "\n"
+
+	d.list.SetSize(w, rows-8)
 	body := d.list.View()
 	if d.err != "" {
 		body += "\n" + promptErrStyle.Render(d.err)
 	}
-	body += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("244")).
-		Render("enter/→: browse in · ←: up · o: open session in selected · ~: home · .: hidden · /: filter · e: type path · esc: cancel")
-	return lipgloss.NewStyle().Padding(1, 2).Render(body)
+
+	footer := footerStyle.Render("↑/↓: select · enter/→: enter dir · ←: up · ~: home · .: hidden dirs · /: filter · e: type a path · esc: cancel")
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(header + divider + body + "\n" + footer)
 }
