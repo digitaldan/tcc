@@ -83,7 +83,12 @@ func PeekSession(path string) (ResumableSession, bool) {
 			if firstUser == "" && l.Message != nil {
 				var s string
 				if json.Unmarshal(l.Message.Content, &s) == nil {
-					firstUser = strings.TrimSpace(s)
+					s = strings.TrimSpace(s)
+					// Skip injected wrappers (<local-command-caveat>,
+					// <command-name>, …) — they aren't the user's words.
+					if s != "" && !strings.HasPrefix(s, "<") && !strings.HasPrefix(s, "Caveat:") {
+						firstUser = s
+					}
 				}
 			}
 		}

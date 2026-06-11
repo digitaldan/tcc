@@ -75,3 +75,15 @@ func ListSessions() []ResumableSession {
 func trimExt(name string) string {
 	return name[:len(name)-len(filepath.Ext(name))]
 }
+
+// TranscriptTitle finds the transcript for a session ID anywhere under the
+// projects tree and returns its title ("" if not found).
+func TranscriptTitle(sessionID string) string {
+	matches, _ := filepath.Glob(filepath.Join(config.ClaudeConfigDir(), "projects", "*", sessionID+".jsonl"))
+	for _, m := range matches {
+		if rs, ok := PeekSession(m); ok {
+			return rs.Title
+		}
+	}
+	return ""
+}

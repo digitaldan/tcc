@@ -1,7 +1,8 @@
 package app
 
 import (
-	"fmt"
+	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,37 +10,68 @@ import (
 
 	"github.com/digitaldan/ctmux/internal/claude"
 	"github.com/digitaldan/ctmux/internal/session"
+	"github.com/digitaldan/ctmux/internal/status"
 )
 
 // agentItem adapts a background agent to bubbles/list.
 type agentItem struct{ a claude.Agent }
 
+// agentState maps the agent onto ctmux's status model for glyphs/colors.
+func (i agentItem) agentState() status.State {
+	if st, ok := claude.StateFromJob(i.a.State); ok {
+		return st
+	}
+	if i.a.Live {
+		return status.Busy // live worker with unknown state (adopted /background session)
+	}
+	return status.Exited
+}
+
 func (i agentItem) Title() string {
+	st := i.agentState()
 	name := i.a.Name
 	if name == "" {
 		name = i.a.Short
 	}
-	st, ok := claude.StateFromJob(i.a.State)
-	glyph := "?"
-	if ok {
-		glyph = st.Glyph()
-	}
-	return fmt.Sprintf("%s %s", glyph, name)
+	glyph := lipgloss.NewStyle().Foreground(glyphColors[st]).Render(st.Glyph())
+	return glyph + " " + name
 }
 
 func (i agentItem) Description() string {
+	var parts []string
+
 	state := i.a.State
 	if state == "" {
-		state = i.a.Status
+		if i.a.Live {
+			state = "running"
+		} else {
+			state = "stopped"
+		}
 	}
-	d := fmt.Sprintf("%s · %s", state, shortenHome(i.a.CWD))
+	parts = append(parts, state)
+
 	if i.a.WaitingFor != "" {
-		d += " · waiting: " + i.a.WaitingFor
+		parts = append(parts, "waiting: "+i.a.WaitingFor)
 	}
-	return d
+	if d := strings.TrimSpace(i.a.Detail); d != "" {
+		parts = append(parts, truncateTo(d, 64))
+	}
+	if !i.a.UpdatedAt.IsZero() {
+		parts = append(parts, humanAge(time.Since(i.a.UpdatedAt)))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (i agentItem) FilterValue() string { return i.a.Name + " " + i.a.CWD + " " + i.a.Short }
+
+func truncateTo(s string, n int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
+}
 
 type agentsPicker struct {
 	list     list.Model
@@ -53,8 +85,10 @@ func newAgentsPicker(width, height int) *agentsPicker {
 		items = append(items, agentItem{a})
 	}
 
-	l := list.New(items, list.NewDefaultDelegate(), width, height)
-	l.Title = "background agents — enter: attach live view · s: stop & resume with history"
+	d := list.NewDefaultDelegate()
+	d.Styles.SelectedTitle = d.Styles.SelectedTitle.Foreground(lipgloss.Color("231"))
+	l := list.New(items, d, width, height)
+	l.Title = "background agents"
 	l.SetShowStatusBar(false)
 	l.DisableQuitKeybindings()
 	return &agentsPicker{list: l}
@@ -72,24 +106,40 @@ func (m *Model) handleAgentsPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.enterSessionMode()
 				return m, nil
 			}
-			m.attachAgent(item.a)
-			return m, nil
+			if item.a.Live {
+				m.attachAgent(item.a)
+				return m, nil
+			}
+			// No worker running: open the conversation with full history.
+			return m, m.resumeAgent(item.a)
 		case "s":
 			item, ok := m.agents.list.SelectedItem().(agentItem)
 			if !ok || item.a.SessionID == "" {
 				return m, nil
 			}
-			title := item.a.Name
-			if title == "" {
-				title = item.a.Short
-			}
-			m.agents.stopping = true
-			return m, stopAndResume(item.a, item.a.CWD, title)
+			return m, m.resumeAgent(item.a)
 		}
 	}
 	var cmd tea.Cmd
 	m.agents.list, cmd = m.agents.list.Update(msg)
 	return m, cmd
+}
+
+// resumeAgent opens the agent's conversation interactively with history,
+// stopping its worker first when one is running.
+func (m *Model) resumeAgent(a claude.Agent) tea.Cmd {
+	title := a.Name
+	if title == "" {
+		title = a.Short
+	}
+	if !a.Live {
+		// Nothing to stop; resume directly.
+		return func() tea.Msg {
+			return agentStoppedMsg{sessionID: a.SessionID, dir: a.CWD, title: title}
+		}
+	}
+	m.agents.stopping = true
+	return stopAndResume(a, a.CWD, title)
 }
 
 // attachAgent opens a tab running `claude attach <short>` whose status is
@@ -125,8 +175,11 @@ func (p *agentsPicker) view(width, rows int) string {
 		return lipgloss.NewStyle().Padding(2, 4).
 			Render("stopping background agent, then resuming with history…")
 	}
-	p.list.SetSize(min(width-4, 100), rows-2)
-	return lipgloss.NewStyle().Padding(1, 2).Render(p.list.View())
+	p.list.SetSize(min(width-4, 110), rows-3)
+	body := p.list.View()
+	body += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(
+		"enter: open (live agents attach · finished agents resume with history) · s: stop & resume live agent · /: filter · esc: cancel")
+	return lipgloss.NewStyle().Padding(1, 2).Render(body)
 }
 
 // applyJobState updates an attached tab from daemon job state.

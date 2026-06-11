@@ -41,13 +41,13 @@ type dirItem struct {
 func (i dirItem) Title() string {
 	switch i.kind {
 	case itemOpenHere:
-		return "▸ open session here"
+		return "▶ start session here"
 	case itemRecent:
-		return "★ " + shortenHome(i.path)
+		return "★ " + filepath.Base(i.path)
 	case itemParent:
-		return "▴ .."
+		return "  ../"
 	default:
-		return "▸ " + i.name + "/"
+		return "  " + i.name + "/"
 	}
 }
 
@@ -56,11 +56,11 @@ func (i dirItem) Description() string {
 	case itemOpenHere:
 		return shortenHome(i.path)
 	case itemRecent:
-		return "recent project · enter opens"
+		return "recent · " + shortenHome(i.path)
 	case itemParent:
-		return shortenHome(i.path)
+		return "up to " + shortenHome(i.path)
 	default:
-		return "enter to browse"
+		return shortenHome(i.path)
 	}
 }
 
@@ -130,6 +130,7 @@ func recentProjectDirs(cur string, max int) []string {
 
 // reload rebuilds the list for curDir.
 func (d *dirPrompt) reload() {
+	d.list.Title = "new session — " + shortenHome(d.curDir)
 	items := []list.Item{dirItem{kind: itemOpenHere, path: d.curDir}}
 
 	if d.atStart {
@@ -209,23 +210,26 @@ func (m *Model) handleDirPrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				d.navigate(parent)
 			}
 			return m, nil
-		case "right", "l":
-			if it, ok := d.list.SelectedItem().(dirItem); ok && it.kind == itemSubdir {
-				d.navigate(it.path)
-			}
-			return m, nil
-		case "enter":
+		case "enter", "right", "l":
+			// Enter and → behave identically everywhere: browse into the
+			// selected directory. The pinned "start session here" row (and
+			// the `o` key) are the only ways to open a session.
 			it, ok := d.list.SelectedItem().(dirItem)
 			if !ok {
 				return m, nil
 			}
-			switch it.kind {
-			case itemOpenHere, itemRecent:
+			if it.kind == itemOpenHere {
 				return m.openSessionIn(it.path)
-			case itemParent, itemSubdir:
-				d.navigate(it.path)
 			}
+			d.navigate(it.path)
 			return m, nil
+		case "o":
+			// Open a session in the selected directory.
+			it, ok := d.list.SelectedItem().(dirItem)
+			if !ok {
+				return m, nil
+			}
+			return m.openSessionIn(it.path)
 		}
 	}
 	var cmd tea.Cmd
@@ -301,6 +305,6 @@ func (d *dirPrompt) view(width, rows int) string {
 		body += "\n" + promptErrStyle.Render(d.err)
 	}
 	body += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("244")).
-		Render("enter: open/browse · bksp: up · ~: home · .: hidden · /: filter · e: type path · esc: cancel")
+		Render("enter/→: browse in · ←: up · o: open session in selected · ~: home · .: hidden · /: filter · e: type path · esc: cancel")
 	return lipgloss.NewStyle().Padding(1, 2).Render(body)
 }

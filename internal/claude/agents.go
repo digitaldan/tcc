@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -25,21 +26,109 @@ type Agent struct {
 	Status     string `json:"status"` // "idle" | "waiting" | ...
 	State      string `json:"state"`  // "working" | "blocked" | "done" | "failed" | "stopped"
 	WaitingFor string `json:"waitingFor"`
+
+	// Enriched from the job state file; not part of the CLI JSON.
+	Detail    string    `json:"-"` // last progress/result summary
+	UpdatedAt time.Time `json:"-"`
+	Live      bool      `json:"-"` // a worker process is currently running
 }
 
-// ListAgents returns the daemon's background sessions, preferring the CLI
-// surface (`claude agents --json`) and falling back to roster + job files.
+// ListAgents returns background sessions like the native agent view: live
+// workers (from `claude agents --json`, falling back to the roster) unioned
+// with completed/stopped jobs from ~/.claude/jobs, newest first with
+// attention-needing agents on top.
 func ListAgents() []Agent {
-	if agents, err := listAgentsCLI(); err == nil {
-		out := agents[:0]
-		for _, a := range agents {
-			if a.Kind == "background" {
-				out = append(out, a)
+	byShort := map[string]*Agent{}
+	var order []string
+
+	live, err := listAgentsCLI()
+	if err != nil {
+		live = listAgentsFromFiles()
+	}
+	for _, a := range live {
+		if a.Kind != "background" || a.Short == "" {
+			continue
+		}
+		a := a
+		a.Live = true
+		byShort[a.Short] = &a
+		order = append(order, a.Short)
+	}
+
+	// Union with job state files: enrich live agents, add completed ones.
+	jobs, _ := os.ReadDir(jobsDir())
+	for _, d := range jobs {
+		if !d.IsDir() {
+			continue
+		}
+		short := d.Name()
+		js, err := readJobState(short)
+		if err != nil {
+			continue
+		}
+		if a, ok := byShort[short]; ok {
+			a.Detail = js.Detail
+			a.UpdatedAt = js.UpdatedTime()
+			if a.Name == "" || a.Name == a.Short {
+				a.Name = js.DisplayName()
+			}
+			if a.State == "" {
+				a.State = js.State
+			}
+			continue
+		}
+		byShort[short] = &Agent{
+			Short:      short,
+			CWD:        js.CWD,
+			Kind:       "background",
+			SessionID:  js.SessionID,
+			Name:       js.DisplayName(),
+			State:      js.State,
+			WaitingFor: js.WaitingFor,
+			Detail:     js.Detail,
+			UpdatedAt:  js.UpdatedTime(),
+		}
+		order = append(order, short)
+	}
+
+	out := make([]Agent, 0, len(order))
+	for _, short := range order {
+		a := *byShort[short]
+		// Adopted /background sessions have no job name; prefer the session's
+		// transcript title, then the project directory, over a bare short id.
+		if a.Name == "" || a.Name == a.Short {
+			if title := TranscriptTitle(a.SessionID); title != "" {
+				a.Name = title
+			} else if a.CWD != "" {
+				a.Name = filepath.Base(a.CWD) + " (backgrounded)"
 			}
 		}
-		return out
+		out = append(out, a)
 	}
-	return listAgentsFromFiles()
+	sort.SliceStable(out, func(i, j int) bool {
+		pi, pj := statePriority(out[i]), statePriority(out[j])
+		if pi != pj {
+			return pi < pj
+		}
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	return out
+}
+
+// statePriority orders agents like the native view: needs-input, working,
+// then finished.
+func statePriority(a Agent) int {
+	switch a.State {
+	case "blocked":
+		return 0
+	case "working":
+		return 1
+	default:
+		if a.Live {
+			return 1 // live worker with unknown state (e.g. adopted /background session)
+		}
+		return 2
+	}
 }
 
 func listAgentsCLI() ([]Agent, error) {
@@ -66,6 +155,21 @@ type JobState struct {
 	Intent     string `json:"intent"`
 	SessionID  string `json:"sessionId"`
 	CWD        string `json:"cwd"`
+	UpdatedAt  string `json:"updatedAt"`
+}
+
+// DisplayName prefers the job's name, falling back to its intent.
+func (js JobState) DisplayName() string {
+	if js.Name != "" {
+		return js.Name
+	}
+	return js.Intent
+}
+
+// UpdatedTime parses the job's updatedAt timestamp.
+func (js JobState) UpdatedTime() time.Time {
+	t, _ := time.Parse(time.RFC3339, js.UpdatedAt)
+	return t
 }
 
 func jobsDir() string { return filepath.Join(config.ClaudeConfigDir(), "jobs") }
