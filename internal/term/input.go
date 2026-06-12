@@ -38,6 +38,10 @@ type Router struct {
 	onPrefix   func()
 	onTabClick func(col int)
 	onTabNav   func(delta int)
+	onWheel    func(delta int) // wheel the child doesn't consume (scrollback)
+	onAnyKey   func()          // non-mouse session input while scrolled back
+
+	scrolled atomic.Bool // a scrollback view is active; keys snap it back
 
 	prefix     byte
 	carry      []byte       // partial escape-sequence candidate from the previous read
@@ -74,6 +78,19 @@ func (r *Router) OnTabClick(f func(col int)) { r.onTabClick = f }
 // OnTabNav registers a callback for the Ctrl+Shift+Left/Right tab-switch
 // shortcut (-1 / +1).
 func (r *Router) OnTabNav(f func(delta int)) { r.onTabNav = f }
+
+// OnWheel registers a callback for wheel events the child session has not
+// asked to receive (mouse tracking off): tcc scrolls its own buffer.
+// delta is negative for wheel-up (older content).
+func (r *Router) OnWheel(f func(delta int)) { r.onWheel = f }
+
+// OnAnyKey registers a callback fired when non-mouse input is forwarded to
+// the session while a scrollback view is active (set via SetScrolled).
+func (r *Router) OnAnyKey(f func()) { r.onAnyKey = f }
+
+// SetScrolled tells the router whether the active tab is viewing scrollback;
+// while true, forwarded keystrokes trigger OnAnyKey so the view snaps back.
+func (r *Router) SetScrolled(on bool) { r.scrolled.Store(on) }
 
 // SetMouseLevel sets the highest mouse-tracking mode the active session has
 // enabled; session-area mouse reports beyond that level are dropped rather
@@ -194,14 +211,26 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 					if r.onTabClick != nil {
 						r.onTabClick(col)
 					}
-				} else if fwd != nil && r.allowMouseEvent(seq) {
-					out = append(out, fwd...)
+				} else if fwd != nil {
+					if r.allowMouseEvent(seq) {
+						out = append(out, fwd...)
+					} else if delta, ok := wheelDelta(seq); ok && r.onWheel != nil {
+						// The child doesn't want mouse events; wheel scrolls
+						// tcc's own buffer for this tab.
+						r.onWheel(delta)
+					}
 				}
 				i += n - 1
 				continue
 			}
 		}
 
+		// Self-disarm on the first byte: multi-byte input (escape sequences,
+		// pastes) must not flood the UI with one reset per byte. The app
+		// re-arms via SetScrolled when the user scrolls again.
+		if r.onAnyKey != nil && r.scrolled.CompareAndSwap(true, false) {
+			r.onAnyKey()
+		}
 		out = append(out, b)
 	}
 	return out, nil
@@ -256,6 +285,30 @@ func (r *Router) allowMouseEvent(seq []byte) bool {
 		return level >= 1002
 	default:
 		return true
+	}
+}
+
+// wheelDelta extracts the scroll direction from an SGR mouse report.
+// Returns -1 for wheel-up (older content), +1 for wheel-down, ok=false for
+// non-wheel events.
+func wheelDelta(seq []byte) (int, bool) {
+	b := 0
+	for _, c := range seq[3:] {
+		if c < '0' || c > '9' {
+			break
+		}
+		b = b*10 + int(c-'0')
+	}
+	if b&64 == 0 {
+		return 0, false
+	}
+	switch b & 3 {
+	case 0:
+		return -1, true // wheel up
+	case 1:
+		return 1, true // wheel down
+	default:
+		return 0, false // horizontal scroll (wheel left/right): ignore
 	}
 }
 

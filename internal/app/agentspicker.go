@@ -211,6 +211,9 @@ func (m *Model) attachAgent(a claude.Agent) {
 	if err := m.spawnWith(session.SpawnOptions{
 		Dir:    a.CWD,
 		Attach: a.Short,
+		// The live view never repaints past conversation; backfill the
+		// tab's scrollback from the transcript so wheel-up shows history.
+		Prefill: claude.RenderTranscript(a.SessionID),
 	}, tabTitle(title)); err != nil {
 		return
 	}

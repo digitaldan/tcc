@@ -38,6 +38,12 @@ type tabClickMsg struct{ col int }
 // tabNavMsg reports a Ctrl+Shift+Left/Right tab switch (-1 / +1).
 type tabNavMsg struct{ delta int }
 
+// wheelMsg reports wheel input the session didn't consume (scrollback).
+type wheelMsg struct{ delta int }
+
+// scrollResetMsg snaps the active tab back to the live view.
+type scrollResetMsg struct{}
+
 // pickerRefreshMsg asks the app to rebuild a picker after a destructive
 // action (session deleted, agent stopped/removed) completed.
 type pickerRefreshMsg struct{ mode uiMode }

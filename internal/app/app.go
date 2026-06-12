@@ -107,6 +107,12 @@ func Run(args []string) error {
 	m.router.OnTabNav(func(delta int) {
 		p.Send(tabNavMsg{delta: delta})
 	})
+	m.router.OnWheel(func(delta int) {
+		p.Send(wheelMsg{delta: delta})
+	})
+	m.router.OnAnyKey(func() {
+		p.Send(scrollResetMsg{})
+	})
 	go m.router.Run()
 
 	stateDir, err := config.StateDir()
@@ -282,6 +288,10 @@ func (m *Model) setActive(i int) {
 	} else {
 		m.router.SetActive(t.PTY)
 	}
+	if t.Term != nil {
+		off, _ := t.Term.ScrollPosition()
+		m.router.SetScrolled(off > 0)
+	}
 	m.saveTabs()
 }
 
@@ -380,6 +390,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tabNavMsg:
 		m.cycleTab(msg.delta)
+		return m, nil
+
+	case wheelMsg:
+		// Wheel the session didn't ask for: scroll this tab's own history
+		// (3 lines per notch, like most terminals).
+		if t := m.activeTab(); t != nil && t.Term != nil && !t.Exited() {
+			t.Term.ScrollBy(-msg.delta * 3)
+			off, _ := t.Term.ScrollPosition()
+			m.router.SetScrolled(off > 0)
+		}
+		return m, nil
+
+	case scrollResetMsg:
+		if t := m.activeTab(); t != nil && t.Term != nil {
+			t.Term.ResetScroll()
+		}
+		m.router.SetScrolled(false)
 		return m, nil
 
 	case tea.MouseMsg:

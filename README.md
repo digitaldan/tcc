@@ -23,6 +23,7 @@ A tabbed terminal manager for [Claude Code](https://claude.com/claude-code) sess
 - **Live status without polling** — tab badges driven by Claude Code's own hook events: busy, idle, waiting for permission/input, errored
 - **Resume anything** — a filterable picker over your past sessions (`~/.claude/projects/`) with their titles, projects, and ages
 - **Background agents, first-class** — see live *and* completed agents like Claude's agent view; attach to a running worker, or stop it and pull the conversation into the foreground with full history
+- **Mouse wheel scrollback** — recent Claude Code versions don't capture the mouse, so the wheel scrolls tcc's per-tab history (like a terminal's native scrollback); any key snaps back to live. Sessions that do request mouse tracking get the events forwarded instead.
 - **A bell when a background tab needs you**
 - **Tabs survive restarts** — quit (or crash) and the next launch reopens your tabs: sessions resume with their conversation history, attached agents re-attach if their worker is still running
 - **Single static binary** — no tmux, no daemons of its own, no config required
@@ -71,7 +72,7 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 
 In the agents picker, `Enter` is state-aware: a **live** agent attaches as a live view (the worker's current screen — `claude attach` doesn't repaint past conversation), while a **finished** agent resumes its conversation with full history. Press `s` on a live agent to stop its worker and resume with history instead. The resume picker handles live workers automatically: sessions currently running as background agents are marked with ● and `Enter` stops the worker before resuming (a bare `claude --resume` would refuse).
 
-Attached agents get their status from the daemon's job state (`~/.claude/jobs/<id>/state.json`) since hooks can't be injected into an already-running worker. Closing an attach tab detaches without killing the worker.
+Attached agents get their status from the daemon's job state (`~/.claude/jobs/<id>/state.json`) since hooks can't be injected into an already-running worker. Closing an attach tab detaches without killing the worker. Because the live view only shows the worker's current screen, tcc backfills the tab's scrollback from the session transcript on attach — wheel up to read the conversation so far.
 
 Both pickers know what's already open: a session or agent that has a tab is marked ("open in tab N") and `Enter` switches to that tab instead of opening a duplicate.
 
@@ -95,7 +96,6 @@ prefix = "ctrl+a"   # default: ctrl+q
 
 - One row of terminal height is reserved for the tab bar; sessions believe the terminal is one row shorter.
 - No native Windows build: tcc relies on Unix pseudo-terminals. On Windows, run the Linux binary under WSL (works fully, including mouse and status badges, in Windows Terminal).
-- Scrollback/copy-mode for past output isn't implemented yet — Claude Code's own transcript scrolling works as usual.
 - `tcc _hook` is the hidden subcommand Claude Code invokes; it exits silently when run outside a tcc session.
 - Claude Code's hook/session/agent file formats are not a stable public API; tcc degrades gracefully when they change, but a Claude Code update may occasionally need a tcc update to match.
 - Upstream quirk worked around in `internal/term/ansipatch.go`: `x/ansi` treats a raw `0x9C` byte inside OSC strings as the 8-bit string terminator, which corrupts UTF-8 titles like Claude's `✳ Claude Code`.
