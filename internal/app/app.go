@@ -36,6 +36,7 @@ const (
 	uiDirPrompt                  // "new tab" directory prompt
 	uiResumePicker               // resume-a-session list
 	uiAgentsPicker               // background agents list
+	uiQuitConfirm                // quit warning while sessions are mid-task
 )
 
 type Model struct {
@@ -464,6 +465,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleResumePicker(msg)
 		case uiAgentsPicker:
 			return m.handleAgentsPicker(msg)
+		case uiQuitConfirm:
+			return m.handleQuitConfirm(msg)
 		default:
 			// Splash screen: bare keys act without the prefix.
 			if len(m.sessions) == 0 {
@@ -522,8 +525,7 @@ func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
 	case "d":
-		m.quitting = true
-		return m, tea.Quit
+		return m.requestQuit()
 	case "c":
 		m.mode = uiDirPrompt
 		m.dirPrompt = newDirPrompt(m.startDir)
@@ -566,6 +568,8 @@ func (m *Model) View() string {
 	rows := m.bodyRows()
 	var body string
 	switch {
+	case m.mode == uiQuitConfirm:
+		body = m.quitConfirmView(m.width, rows)
 	case m.mode == uiDirPrompt && m.dirPrompt != nil:
 		body = m.dirPrompt.view(m.width, rows)
 	case m.mode == uiResumePicker && m.resume != nil:

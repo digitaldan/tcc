@@ -109,6 +109,7 @@ func loadSavedTabs() savedState {
 func (m *Model) restoreTabs(st savedState) {
 	debugf("restoreTabs: %d saved tabs, size %dx%d", len(st.Tabs), m.width, m.height)
 	m.restoring = true // suppress per-tab saveTabs churn; saved once below
+	liveBySession := claude.ActiveAgentsBySession()
 	for _, s := range st.Tabs {
 		debugf("restore tab kind=%s sid=%s dir=%s resumable=%v", s.Kind, s.SessionID, s.Dir, claude.SessionResumable(s.SessionID))
 		if s.Kind == "attached" {
@@ -117,6 +118,12 @@ func (m *Model) restoreTabs(st savedState) {
 				continue
 			}
 			// Worker gone; fall through to resume the conversation instead.
+		}
+		// A session now running as a live background worker (e.g. the user
+		// ran /background in it) can't be resumed; re-attach instead.
+		if a, ok := liveBySession[s.SessionID]; ok {
+			m.attachAgent(a)
+			continue
 		}
 		dir := s.Dir
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {

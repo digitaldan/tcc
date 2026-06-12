@@ -63,7 +63,7 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 | `Ctrl+Shift+←` / `Ctrl+Shift+→` | Previous / next tab (no prefix needed) |
 | mouse click on a tab | Switch to it (works any time; hold Option in iTerm for native text selection) |
 | `^Q x` | Close tab (kills the session; attached agents just detach) |
-| `^Q d` | Quit tcc |
+| `^Q d` | Quit tcc. If any session is mid-task, a warning lists them and asks to confirm (`Enter`/`y` quits — they're stopped but stay resumable and the tabs reopen next launch; `Esc` cancels). All idle → quits immediately. |
 | `^Q ^Q` | Send a literal Ctrl+Q to the session |
 | `Esc` | Cancel the prefix or any picker |
 
