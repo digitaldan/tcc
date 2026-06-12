@@ -23,6 +23,7 @@ type Emulator struct {
 	bell          func()
 	mouseChange   func(enabled bool)
 	mouseModes    map[int]bool
+	scrollOffset  int // lines scrolled back into history (0 = live)
 }
 
 func New(w, h int) *Emulator {
@@ -118,19 +119,62 @@ func (e *Emulator) Responses() io.Reader { return e.vt }
 func (e *Emulator) Resize(w, h int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.scrollOffset = 0
 	e.vt.Resize(w, h)
+}
+
+// ScrollBy moves the view into scrollback history (positive = older lines)
+// and reports whether the offset changed. Scrolling is a no-op on the alt
+// screen — full-screen apps handle their own scrolling.
+func (e *Emulator) ScrollBy(delta int) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.vt.IsAltScreen() {
+		return false
+	}
+	off := e.scrollOffset + delta
+	if max := e.vt.ScrollbackLen(); off > max {
+		off = max
+	}
+	if off < 0 {
+		off = 0
+	}
+	changed := off != e.scrollOffset
+	e.scrollOffset = off
+	return changed
+}
+
+// ResetScroll jumps back to the live view.
+func (e *Emulator) ResetScroll() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.scrollOffset = 0
+}
+
+// ScrollPosition returns the current offset into history and the total
+// history size. offset == 0 means the live view.
+func (e *Emulator) ScrollPosition() (offset, total int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.scrollOffset, e.vt.ScrollbackLen()
 }
 
 func (e *Emulator) Close() { _ = e.vt.Close() }
 
 // View renders the screen as exactly h lines of ANSI-styled text. The cursor
 // cell is drawn in reverse video when visible, since the host UI hides the
-// real terminal cursor.
+// real terminal cursor. When scrolled back, the view is composed of
+// scrollback lines followed by the top of the live screen.
 func (e *Emulator) View() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	w, h := e.vt.Width(), e.vt.Height()
+
+	if e.scrollOffset > 0 {
+		return e.renderScrolled(w, h)
+	}
+
 	cur := e.vt.CursorPosition()
 
 	lines := strings.Split(e.vt.Render(), "\n")
@@ -145,6 +189,42 @@ func (e *Emulator) View() string {
 		lines[cur.Y] = e.renderLineWithCursor(cur.Y, cur.X, w)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderScrolled composes the view at the current scrollback offset: the
+// last offset lines of history on top, then the upper part of the live
+// screen. Must be called with mu held.
+func (e *Emulator) renderScrolled(w, h int) string {
+	total := e.vt.ScrollbackLen()
+	off := e.scrollOffset
+	if off > total {
+		off = total
+	}
+
+	lines := make([]string, 0, h)
+	// History portion: the off oldest-of-the-recent lines, ending at the
+	// line that immediately precedes the live screen.
+	for i := total - off; i < total && len(lines) < h; i++ {
+		lines = append(lines, e.renderScrollbackLine(i, w))
+	}
+	// Live screen portion fills the remainder from its top.
+	screen := strings.Split(e.vt.Render(), "\n")
+	for i := 0; i < len(screen) && len(lines) < h; i++ {
+		lines = append(lines, screen[i])
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderScrollbackLine renders one history line. Must be called with mu held.
+func (e *Emulator) renderScrollbackLine(idx, w int) string {
+	if line := e.vt.Scrollback().Line(idx); line != nil {
+		return line.Render()
+	}
+	_ = w
+	return ""
 }
 
 // renderLineWithCursor rebuilds one line from cells, toggling reverse video

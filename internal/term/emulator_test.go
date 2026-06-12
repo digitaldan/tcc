@@ -53,3 +53,44 @@ func TestRespondsToDA1(t *testing.T) {
 		t.Fatal("no DA1 response from emulator")
 	}
 }
+
+// Scrollback: feeding more lines than the screen holds pushes history; the
+// view composes history + live screen when scrolled, and resets cleanly.
+func TestScrollbackView(t *testing.T) {
+	e := New(20, 4)
+	defer e.Close()
+
+	for i := 1; i <= 12; i++ {
+		e.Feed([]byte("line-" + string(rune('0'+i/10)) + string(rune('0'+i%10)) + "\r\n"))
+	}
+
+	if off, total := e.ScrollPosition(); off != 0 || total == 0 {
+		t.Fatalf("expected live view with history, got off=%d total=%d", off, total)
+	}
+
+	if !e.ScrollBy(3) {
+		t.Fatal("ScrollBy should report a change")
+	}
+	view := e.View()
+	if !strings.Contains(view, "line-07") || strings.Contains(view, "line-12") {
+		t.Fatalf("scrolled view should show older lines and hide the newest:\n%s", view)
+	}
+
+	// Clamped at history size.
+	e.ScrollBy(10000)
+	off, total := e.ScrollPosition()
+	if off != total {
+		t.Fatalf("offset should clamp to total: off=%d total=%d", off, total)
+	}
+	if !strings.Contains(e.View(), "line-01") {
+		t.Fatalf("fully scrolled view should show the oldest line:\n%s", e.View())
+	}
+
+	e.ResetScroll()
+	if off, _ := e.ScrollPosition(); off != 0 {
+		t.Fatal("ResetScroll should return to live view")
+	}
+	if !strings.Contains(e.View(), "line-12") {
+		t.Fatalf("live view should show the newest line:\n%s", e.View())
+	}
+}

@@ -149,3 +149,37 @@ func TestFilterSessionCarriesSplitMouseSequence(t *testing.T) {
 		t.Fatalf("lone ESC mishandled: out=%q carry=%q", out, r.carry)
 	}
 }
+
+// Wheel events the child didn't subscribe to go to the scrollback callback
+// instead of being forwarded or dropped.
+func TestWheelFallbackToScrollback(t *testing.T) {
+	r := NewRouter(0)
+	var wheel int
+	r.OnWheel(func(d int) { wheel += d })
+
+	// Mouse level 0: wheel-up triggers the callback, nothing is forwarded.
+	out, _ := r.filterSession([]byte("\x1b[<64;10;5M"))
+	if len(out) != 0 || wheel != -1 {
+		t.Fatalf("wheel fallback broken: out=%q wheel=%d", out, wheel)
+	}
+	out, _ = r.filterSession([]byte("\x1b[<65;10;5M"))
+	if len(out) != 0 || wheel != 0 {
+		t.Fatalf("wheel-down fallback broken: out=%q wheel=%d", out, wheel)
+	}
+
+	// With mouse enabled, wheel forwards to the child instead.
+	r.SetMouseLevel(1003)
+	out, _ = r.filterSession([]byte("\x1b[<64;10;5M"))
+	if string(out) != "\x1b[<64;10;4M" || wheel != 0 {
+		t.Fatalf("wheel should forward when child wants mouse: out=%q wheel=%d", out, wheel)
+	}
+
+	// Keystrokes while scrolled trigger the snap-back callback.
+	var snapped bool
+	r.OnAnyKey(func() { snapped = true })
+	r.SetScrolled(true)
+	_, _ = r.filterSession([]byte("a"))
+	if !snapped {
+		t.Fatal("keystroke while scrolled should trigger OnAnyKey")
+	}
+}
