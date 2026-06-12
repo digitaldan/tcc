@@ -6,7 +6,25 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
+
+// cleanEnv returns the environment without Claude Code's nested-session
+// markers. If tcc itself was launched from inside a Claude Code session,
+// children inheriting CLAUDECODE / CLAUDE_CODE_* believe they are child
+// sessions and silently skip writing conversation transcripts — which would
+// break resume and tab restore. CLAUDE_CONFIG_DIR is kept (user intent).
+func cleanEnv() []string {
+	env := os.Environ()
+	out := env[:0]
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "CLAUDECODE=") || strings.HasPrefix(kv, "CLAUDE_CODE_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
 
 // NewUUID returns a random v4 UUID string.
 func NewUUID() string {
@@ -62,7 +80,7 @@ func NewClaude(opts SpawnOptions) *Session {
 
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = opts.Dir
-	cmd.Env = append(os.Environ(), "TCC_TAB_ID="+s.TabID)
+	cmd.Env = append(cleanEnv(), "TCC_TAB_ID="+s.TabID)
 	s.Cmd = cmd
 
 	if s.Title == "" {

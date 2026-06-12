@@ -264,6 +264,7 @@ func (m *Model) spawnWith(opts session.SpawnOptions, title string) error {
 	}
 	m.sessions = append(m.sessions, t)
 	m.setActive(len(m.sessions) - 1)
+	m.saveTabs()
 	return nil
 }
 
@@ -279,6 +280,7 @@ func (m *Model) setActive(i int) {
 	} else {
 		m.router.SetActive(t.PTY)
 	}
+	m.saveTabs()
 }
 
 // clickTab activates the tab rendered at the given 1-based column.
@@ -328,6 +330,7 @@ func (m *Model) closeTab(i int) {
 	if len(m.sessions) == 0 {
 		m.router.SetActive(nil)
 		m.enterSessionMode() // chrome mode → splash
+		m.saveTabs()
 		return
 	}
 	if m.active >= len(m.sessions) {
@@ -345,9 +348,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
+		first := m.width == 0
 		m.width, m.height = msg.Width, msg.Height
 		for _, t := range m.sessions {
 			t.Resize(m.width, m.bodyRows())
+		}
+		// First size message: reopen the previous run's tabs (quit or crash).
+		if first && len(m.sessions) == 0 {
+			m.restoreTabs(loadSavedTabs())
 		}
 		return m, nil
 
@@ -425,8 +433,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					ringBell()
 				}
 			}
-			if msg.ev.SessionID != "" {
+			if msg.ev.SessionID != "" && msg.ev.SessionID != t.SessionID {
+				// Session id changed (e.g. resume forked); keep the saved
+				// state accurate for the next restore.
 				t.SessionID = msg.ev.SessionID
+				m.saveTabs()
 			}
 		}
 		return m, nil

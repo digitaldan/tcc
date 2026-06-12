@@ -214,6 +214,18 @@ func listAgentsFromFiles() []Agent {
 	return out
 }
 
+// LiveAgentByShort returns the live daemon worker with the given short id,
+// read from the roster files (fast; no subprocess).
+func LiveAgentByShort(short string) (Agent, bool) {
+	for _, a := range listAgentsFromFiles() {
+		if a.Short == short {
+			a.Live = true
+			return a, true
+		}
+	}
+	return Agent{}, false
+}
+
 // ActiveAgentsBySession returns the live daemon workers keyed by their
 // Claude session ID, read from the roster files (fast; no subprocess).
 func ActiveAgentsBySession() map[string]Agent {

@@ -110,6 +110,30 @@ func PeekSession(path string) (ResumableSession, bool) {
 	return rs, true
 }
 
+// HasConversation reports whether the session's transcript contains actual
+// conversation messages — `claude --resume` refuses sessions that have only
+// metadata lines (titles etc.).
+func HasConversation(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(io.LimitReader(f, peekLimit))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		var l peekLine
+		if json.Unmarshal(sc.Bytes(), &l) != nil {
+			continue
+		}
+		if l.Type == "user" || l.Type == "assistant" {
+			return true
+		}
+	}
+	return false
+}
+
 func truncate(s string, n int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	r := []rune(s)

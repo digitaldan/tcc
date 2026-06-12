@@ -24,6 +24,7 @@ A tabbed terminal manager for [Claude Code](https://claude.com/claude-code) sess
 - **Resume anything** — a filterable picker over your past sessions (`~/.claude/projects/`) with their titles, projects, and ages
 - **Background agents, first-class** — see live *and* completed agents like Claude's agent view; attach to a running worker, or stop it and pull the conversation into the foreground with full history
 - **A bell when a background tab needs you**
+- **Tabs survive restarts** — quit (or crash) and the next launch reopens your tabs: sessions resume with their conversation history, attached agents re-attach if their worker is still running
 - **Single static binary** — no tmux, no daemons of its own, no config required
 
 ## Install
@@ -48,6 +49,8 @@ Requires the [`claude` CLI](https://claude.com/claude-code) on PATH. Supported p
 ## Use
 
 Run `tcc` — it starts on a splash screen listing the available commands. There, bare keys work: `c` new session, `r` resume, `a` background agents, `q` quit. When a Claude session exits (e.g. `/exit`), its tab closes itself; closing the last tab returns to the splash screen.
+
+Open tabs persist across restarts (`~/.tcc/tabs.json`, updated on every tab change so a crash loses nothing): on the next launch, sessions reopen via `claude --resume` with their history, attached agents re-attach when their worker is still alive (resuming otherwise), and never-prompted sessions reopen fresh in their directory. Close all tabs before quitting if you want a clean start.
 
 Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 
