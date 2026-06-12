@@ -48,6 +48,9 @@ func kindString(k session.Kind) string {
 // saveTabs snapshots the current tab set. Errors are ignored — persistence
 // is best-effort and must never disturb the UI.
 func (m *Model) saveTabs() {
+	if m.restoring {
+		return // restoreTabs saves once when done
+	}
 	path, err := tabsFilePath()
 	if err != nil {
 		return
@@ -80,7 +83,9 @@ func (m *Model) saveTabs() {
 		os.Remove(tmpName)
 		return
 	}
-	_ = os.Rename(tmpName, path)
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+	}
 }
 
 func loadSavedTabs() savedState {
@@ -103,30 +108,34 @@ func loadSavedTabs() savedState {
 // vanished are skipped.
 func (m *Model) restoreTabs(st savedState) {
 	debugf("restoreTabs: %d saved tabs, size %dx%d", len(st.Tabs), m.width, m.height)
+	m.restoring = true // suppress per-tab saveTabs churn; saved once below
 	for _, s := range st.Tabs {
 		debugf("restore tab kind=%s sid=%s dir=%s resumable=%v", s.Kind, s.SessionID, s.Dir, claude.SessionResumable(s.SessionID))
-		switch s.Kind {
-		case "attached":
+		if s.Kind == "attached" {
 			if a, ok := claude.LiveAgentByShort(s.AgentShort); ok {
 				m.attachAgent(a)
 				continue
 			}
-			fallthrough // worker gone; reopen the conversation instead
-		default:
-			dir := s.Dir
-			if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-				dir = m.startDir
+			// Worker gone; fall through to resume the conversation instead.
+		}
+		dir := s.Dir
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			dir = m.startDir
+		}
+		if claude.SessionResumable(s.SessionID) {
+			if err := m.spawn(dir, []string{"--resume", s.SessionID}, session.KindResumed, s.Title); err != nil {
+				debugf("restoreTabs: resume %s failed: %v", s.SessionID, err)
 			}
-			if claude.SessionResumable(s.SessionID) {
-				_ = m.spawn(dir, []string{"--resume", s.SessionID}, session.KindResumed, s.Title)
-			} else if s.Kind == "spawned" {
-				// Nothing to resume (never prompted, or the conversation
-				// never hit disk); reopen the tab as a fresh session in the
-				// same directory.
-				_ = m.spawn(dir, nil, session.KindSpawned, s.Title)
+		} else {
+			// Nothing to resume (never prompted, conversation never hit
+			// disk, or transcript deleted); keep the tab by reopening a
+			// fresh session in its directory.
+			if err := m.spawn(dir, nil, session.KindSpawned, s.Title); err != nil {
+				debugf("restoreTabs: fresh spawn in %s failed: %v", dir, err)
 			}
 		}
 	}
+	m.restoring = false
 	if len(m.sessions) > 0 {
 		if st.Active >= 0 && st.Active < len(m.sessions) {
 			m.setActive(st.Active)

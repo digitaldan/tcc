@@ -16,7 +16,7 @@ import (
 // break resume and tab restore. CLAUDE_CONFIG_DIR is kept (user intent).
 func cleanEnv() []string {
 	env := os.Environ()
-	out := env[:0]
+	out := make([]string, 0, len(env))
 	for _, kv := range env {
 		if strings.HasPrefix(kv, "CLAUDECODE=") || strings.HasPrefix(kv, "CLAUDE_CODE_") {
 			continue

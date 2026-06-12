@@ -61,6 +61,7 @@ type Model struct {
 
 	cfg       config.Config
 	tabBounds []int // tab bar layout: end column (1-based) of each tab
+	restoring bool  // restoreTabs in progress; suppresses per-tab saves
 }
 
 func Run(args []string) error {

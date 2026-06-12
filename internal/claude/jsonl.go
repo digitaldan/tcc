@@ -2,6 +2,7 @@ package claude
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -110,9 +111,15 @@ func PeekSession(path string) (ResumableSession, bool) {
 	return rs, true
 }
 
+// convScanLimit bounds how much of a transcript HasConversation examines.
+// Generous because metadata lines (file-history snapshots) before the first
+// message can be large.
+const convScanLimit = 8 * 1024 * 1024
+
 // HasConversation reports whether the session's transcript contains actual
 // conversation messages — `claude --resume` refuses sessions that have only
-// metadata lines (titles etc.).
+// metadata lines (titles etc.). Oversized lines (huge tool results) are
+// matched by prefix rather than aborting the scan.
 func HasConversation(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -120,18 +127,39 @@ func HasConversation(path string) bool {
 	}
 	defer f.Close()
 
-	sc := bufio.NewScanner(io.LimitReader(f, peekLimit))
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		var l peekLine
-		if json.Unmarshal(sc.Bytes(), &l) != nil {
-			continue
-		}
-		if l.Type == "user" || l.Type == "assistant" {
+	r := bufio.NewReaderSize(io.LimitReader(f, convScanLimit), 64*1024)
+	for {
+		line, err := r.ReadSlice('\n')
+		if isConversationLine(line) {
 			return true
 		}
+		switch err {
+		case nil:
+		case bufio.ErrBufferFull:
+			// Huge line: the prefix was already checked; skip the rest.
+			for err == bufio.ErrBufferFull {
+				_, err = r.ReadSlice('\n')
+			}
+			if err != nil && err != bufio.ErrBufferFull {
+				return false
+			}
+		default:
+			return false // io.EOF or read error
+		}
 	}
-	return false
+}
+
+// isConversationLine matches a transcript line that holds a user/assistant
+// message. Tries full JSON first, falling back to a prefix match for lines
+// that were truncated by the read buffer (claude writes the type field
+// first).
+func isConversationLine(line []byte) bool {
+	var l peekLine
+	if json.Unmarshal(line, &l) == nil {
+		return l.Type == "user" || l.Type == "assistant"
+	}
+	return bytes.HasPrefix(line, []byte(`{"type":"user"`)) ||
+		bytes.HasPrefix(line, []byte(`{"type":"assistant"`))
 }
 
 func truncate(s string, n int) string {
