@@ -120,7 +120,7 @@ func (m *Model) handleAgentsPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if p.confirm != nil {
 		item := *p.confirm
 		p.confirm = nil
-		if s := msg.String(); s == "y" || s == "Y" {
+		if confirmKey(msg.String()) {
 			if item.a.Live {
 				p.busy = "stopping background agent…"
 			} else {
@@ -245,7 +245,7 @@ func (p *agentsPicker) view(width, rows int) string {
 		if p.confirm.a.Live {
 			what = "Stop background agent \"" + tabTitle(name) + "\"? Its conversation stays resumable."
 		}
-		body += "\n" + confirmStyle.Render(" "+what+"  y: yes · any other key: cancel ")
+		body += "\n" + confirmStyle.Render(" "+what+"  "+confirmHint+" ")
 	case p.notice != "":
 		body += "\n" + noticeStyle.Render(p.notice)
 	default:

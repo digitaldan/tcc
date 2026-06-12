@@ -97,7 +97,7 @@ func (m *Model) handleResumePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if p.confirm != nil {
 		item := *p.confirm
 		p.confirm = nil
-		if s := msg.String(); s == "y" || s == "Y" {
+		if confirmKey(msg.String()) {
 			if item.live != nil {
 				p.busy = "stopping background agent and deleting session…"
 			} else {
@@ -161,6 +161,14 @@ var (
 	noticeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 )
 
+// confirmKey reports whether a key confirms a pending x-action: y, or x
+// again (press-twice).
+func confirmKey(s string) bool {
+	return s == "y" || s == "Y" || s == "x" || s == "X"
+}
+
+const confirmHint = "y/x: yes · any other key: cancel"
+
 func (p *resumePicker) view(width, rows int) string {
 	if p.stopping {
 		return lipgloss.NewStyle().Padding(2, 4).
@@ -177,7 +185,7 @@ func (p *resumePicker) view(width, rows int) string {
 		if p.confirm.live != nil {
 			what = "Stop background agent and delete session \"" + tabTitle(p.confirm.rs.Title) + "\"?"
 		}
-		body += "\n" + confirmStyle.Render(" "+what+"  y: yes · any other key: cancel ")
+		body += "\n" + confirmStyle.Render(" "+what+"  "+confirmHint+" ")
 	case p.notice != "":
 		body += "\n" + noticeStyle.Render(p.notice)
 	default:
