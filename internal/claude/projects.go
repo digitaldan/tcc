@@ -106,3 +106,18 @@ func TranscriptTitle(sessionID string) string {
 	}
 	return ""
 }
+
+// SessionResumable reports whether `claude --resume` would accept the
+// session: a transcript exists and holds actual conversation messages.
+func SessionResumable(sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	matches, _ := filepath.Glob(filepath.Join(config.ClaudeConfigDir(), "projects", "*", sessionID+".jsonl"))
+	for _, m := range matches {
+		if HasConversation(m) {
+			return true
+		}
+	}
+	return false
+}
