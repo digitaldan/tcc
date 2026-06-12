@@ -72,7 +72,7 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 
 In the agents picker, `Enter` is state-aware: a **live** agent attaches as a live view (the worker's current screen — `claude attach` doesn't repaint past conversation), while a **finished** agent resumes its conversation with full history. Press `s` on a live agent to stop its worker and resume with history instead. The resume picker handles live workers automatically: sessions currently running as background agents are marked with ● and `Enter` stops the worker before resuming (a bare `claude --resume` would refuse).
 
-Attached agents get their status from the daemon's job state (`~/.claude/jobs/<id>/state.json`) since hooks can't be injected into an already-running worker. Closing an attach tab detaches without killing the worker.
+Attached agents get their status from the daemon's job state (`~/.claude/jobs/<id>/state.json`) since hooks can't be injected into an already-running worker. Closing an attach tab detaches without killing the worker. Because the live view only shows the worker's current screen, tcc backfills the tab's scrollback from the session transcript on attach — wheel up to read the conversation so far.
 
 Both pickers know what's already open: a session or agent that has a tab is marked ("open in tab N") and `Enter` switches to that tab instead of opening a duplicate.
 

@@ -43,6 +43,7 @@ type SpawnOptions struct {
 	ClaudeBin    string   // defaults to "claude" from PATH
 	PreassignID  bool     // pass --session-id with a fresh UUID
 	Attach       string   // daemon short id; runs `claude attach <short>` (no settings/session-id)
+	Prefill      []byte   // terminal text fed into scrollback before the child starts
 }
 
 // NewClaude builds a Session (not yet started) running claude with tcc's
@@ -55,9 +56,10 @@ func NewClaude(opts SpawnOptions) *Session {
 	}
 
 	s := &Session{
-		TabID: NewUUID(),
-		Dir:   opts.Dir,
-		Kind:  KindSpawned,
+		TabID:   NewUUID(),
+		Dir:     opts.Dir,
+		Kind:    KindSpawned,
+		Prefill: opts.Prefill,
 	}
 
 	var args []string

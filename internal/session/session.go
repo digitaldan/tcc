@@ -3,6 +3,7 @@
 package session
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"os/exec"
@@ -43,6 +44,9 @@ type Session struct {
 	OnExit func(exitCode int)
 	// OnBell is called when the child rings the terminal bell.
 	OnBell func()
+	// Prefill is terminal text fed into the emulator (and thus scrollback)
+	// before the child starts — e.g. transcript history for attached agents.
+	Prefill []byte
 
 	dirty    atomic.Bool
 	exited   atomic.Bool
@@ -61,6 +65,13 @@ func (s *Session) Start(cols, rows int) error {
 	s.Term = term.New(cols, rows)
 	if s.OnBell != nil {
 		s.Term.OnBell(s.OnBell)
+	}
+	if len(s.Prefill) > 0 {
+		// Feed history, then scroll it off-screen so it lands in scrollback
+		// (reachable with the wheel) rather than flashing under the child's
+		// first paint.
+		s.Term.Feed(s.Prefill)
+		s.Term.Feed(bytes.Repeat([]byte("\r\n"), rows))
 	}
 
 	f, err := pty.StartWithSize(s.Cmd, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
