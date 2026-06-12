@@ -23,7 +23,7 @@ A tabbed terminal manager for [Claude Code](https://claude.com/claude-code) sess
 - **Live status without polling** — tab badges driven by Claude Code's own hook events: busy, idle, waiting for permission/input, errored
 - **Resume anything** — a filterable picker over your past sessions (`~/.claude/projects/`) with their titles, projects, and ages
 - **Background agents, first-class** — see live *and* completed agents like Claude's agent view; attach to a running worker, or stop it and pull the conversation into the foreground with full history
-- **Mouse wheel scrollback** — recent Claude Code versions don't capture the mouse, so the wheel scrolls tcc's per-tab history (like a terminal's native scrollback); any key snaps back to live. Sessions that do request mouse tracking get the events forwarded instead.
+- **Scrollback** — recent Claude Code versions don't capture the mouse, so the wheel (or `Ctrl+Shift+↑/↓`) scrolls tcc's per-tab history, like a terminal's native scrollback; any other key snaps back to live. Sessions that do request mouse tracking get wheel events forwarded instead.
 - **A bell when a background tab needs you**
 - **Tabs survive restarts** — quit (or crash) and the next launch reopens your tabs: sessions resume with their conversation history, attached agents re-attach if their worker is still running
 - **Single static binary** — no tmux, no daemons of its own, no config required
@@ -62,6 +62,7 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 | `^Q a` | Background agents — live and completed, like Claude's agent view |
 | `^Q n` / `^Q p` / `^Q 1–9` | Next / previous / nth tab |
 | `Ctrl+Shift+←` / `Ctrl+Shift+→` | Previous / next tab (no prefix needed) |
+| `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Scroll the tab's history up / down (like the mouse wheel) |
 | mouse click on a tab | Switch to it (works any time; hold Option in iTerm for native text selection) |
 | `^Q x` | Close tab (kills the session; attached agents just detach) |
 | `^Q d` | Quit tcc. If any session is mid-task, a warning lists them and asks to confirm (`Enter`/`y` quits — they're stopped but stay resumable and the tabs reopen next launch; `Esc` cancels). All idle → quits immediately. |

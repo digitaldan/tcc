@@ -198,6 +198,17 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 				return out, nil
 			}
 
+			// Scroll shortcut: Ctrl+Shift+Up/Down (CSI 1;6 A/B) acts like
+			// the mouse wheel on tcc's scrollback. (Partial reads share the
+			// prefix with tab-nav and are carried above.)
+			if delta, n := scanScrollNav(p[i:]); delta != 0 {
+				if r.onWheel != nil {
+					r.onWheel(delta)
+				}
+				i += n - 1
+				continue
+			}
+
 			seq, n, complete := scanSGRMouse(p[i:])
 			if !complete && n == len(p[i:]) && n >= 2 {
 				// Mouse-sequence candidate cut off at the read boundary.
@@ -237,9 +248,24 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 }
 
 var (
-	navNext = []byte("\x1b[1;6C") // Ctrl+Shift+Right
-	navPrev = []byte("\x1b[1;6D") // Ctrl+Shift+Left
+	navNext    = []byte("\x1b[1;6C") // Ctrl+Shift+Right
+	navPrev    = []byte("\x1b[1;6D") // Ctrl+Shift+Left
+	scrollUp   = []byte("\x1b[1;6A") // Ctrl+Shift+Up
+	scrollDown = []byte("\x1b[1;6B") // Ctrl+Shift+Down
 )
+
+// scanScrollNav matches the Ctrl+Shift+Up/Down scroll shortcuts at the start
+// of p. delta follows wheel semantics: -1 scrolls toward older content.
+// Partial matches are handled by scanTabNav's carry (shared prefix).
+func scanScrollNav(p []byte) (delta, n int) {
+	if bytes.HasPrefix(p, scrollUp) {
+		return -1, len(scrollUp)
+	}
+	if bytes.HasPrefix(p, scrollDown) {
+		return 1, len(scrollDown)
+	}
+	return 0, 0
+}
 
 // scanTabNav matches the Ctrl+Shift+Left/Right escape sequences at the start
 // of p. delta is +1/-1 on a full match. partial=true means p ends mid-way

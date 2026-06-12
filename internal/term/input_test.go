@@ -183,3 +183,30 @@ func TestWheelFallbackToScrollback(t *testing.T) {
 		t.Fatal("keystroke while scrolled should trigger OnAnyKey")
 	}
 }
+
+// Ctrl+Shift+Up/Down scroll tcc's buffer like wheel notches.
+func TestKeyboardScrollShortcut(t *testing.T) {
+	r := NewRouter(0)
+	var wheel int
+	r.OnWheel(func(d int) { wheel += d })
+
+	out, _ := r.filterSession([]byte("a\x1b[1;6Ab\x1b[1;6Bc"))
+	if string(out) != "abc" {
+		t.Fatalf("scroll keys leaked to session: %q", out)
+	}
+	if wheel != 0 {
+		t.Fatalf("up+down should cancel out, got %d", wheel)
+	}
+
+	wheel = 0
+	_, _ = r.filterSession([]byte("\x1b[1;6A\x1b[1;6A"))
+	if wheel != -2 {
+		t.Fatalf("two ups should give -2, got %d", wheel)
+	}
+
+	// Plain Ctrl+Up (modifier 5) passes through to the session.
+	out, _ = r.filterSession([]byte("\x1b[1;5A"))
+	if string(out) != "\x1b[1;5A" {
+		t.Fatalf("ctrl+up should pass through: %q", out)
+	}
+}

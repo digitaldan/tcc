@@ -62,7 +62,7 @@ func (m *Model) tabBar() string {
 	if m.mode == uiSession {
 		if t := m.activeTab(); t != nil && t.Term != nil {
 			if off, total := t.Term.ScrollPosition(); off > 0 {
-				hint = chordStyle.Render(fmt.Sprintf(" scroll %d/%d · wheel down or any key for live ", off, total))
+				hint = chordStyle.Render(fmt.Sprintf(" scroll %d/%d · wheel/⇧⌃↓ down · any key for live ", off, total))
 			}
 		}
 	}
