@@ -225,7 +225,10 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 			}
 		}
 
-		if r.scrolled.Load() && r.onAnyKey != nil {
+		// Self-disarm on the first byte: multi-byte input (escape sequences,
+		// pastes) must not flood the UI with one reset per byte. The app
+		// re-arms via SetScrolled when the user scrolls again.
+		if r.onAnyKey != nil && r.scrolled.CompareAndSwap(true, false) {
 			r.onAnyKey()
 		}
 		out = append(out, b)
@@ -299,10 +302,14 @@ func wheelDelta(seq []byte) (int, bool) {
 	if b&64 == 0 {
 		return 0, false
 	}
-	if b&3 == 0 {
+	switch b & 3 {
+	case 0:
 		return -1, true // wheel up
+	case 1:
+		return 1, true // wheel down
+	default:
+		return 0, false // horizontal scroll (wheel left/right): ignore
 	}
-	return 1, true // wheel down
 }
 
 // scanSGRMouse checks whether p begins with an SGR mouse report

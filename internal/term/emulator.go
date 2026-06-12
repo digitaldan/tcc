@@ -172,7 +172,7 @@ func (e *Emulator) View() string {
 	w, h := e.vt.Width(), e.vt.Height()
 
 	if e.scrollOffset > 0 {
-		return e.renderScrolled(w, h)
+		return e.renderScrolled(h)
 	}
 
 	cur := e.vt.CursorPosition()
@@ -194,7 +194,7 @@ func (e *Emulator) View() string {
 // renderScrolled composes the view at the current scrollback offset: the
 // last offset lines of history on top, then the upper part of the live
 // screen. Must be called with mu held.
-func (e *Emulator) renderScrolled(w, h int) string {
+func (e *Emulator) renderScrolled(h int) string {
 	total := e.vt.ScrollbackLen()
 	off := e.scrollOffset
 	if off > total {
@@ -205,7 +205,7 @@ func (e *Emulator) renderScrolled(w, h int) string {
 	// History portion: the off oldest-of-the-recent lines, ending at the
 	// line that immediately precedes the live screen.
 	for i := total - off; i < total && len(lines) < h; i++ {
-		lines = append(lines, e.renderScrollbackLine(i, w))
+		lines = append(lines, e.renderScrollbackLine(i))
 	}
 	// Live screen portion fills the remainder from its top.
 	screen := strings.Split(e.vt.Render(), "\n")
@@ -219,11 +219,10 @@ func (e *Emulator) renderScrolled(w, h int) string {
 }
 
 // renderScrollbackLine renders one history line. Must be called with mu held.
-func (e *Emulator) renderScrollbackLine(idx, w int) string {
+func (e *Emulator) renderScrollbackLine(idx int) string {
 	if line := e.vt.Scrollback().Line(idx); line != nil {
 		return line.Render()
 	}
-	_ = w
 	return ""
 }
 
