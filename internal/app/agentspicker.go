@@ -165,11 +165,16 @@ func (m *Model) handleAgentsPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.resumeAgent(item.a)
 		case "s":
 			item, ok := m.agents.list.SelectedItem().(agentItem)
-			if !ok || item.a.SessionID == "" {
+			if !ok {
 				return m, nil
 			}
+			// Switch first: the agent may be open in a tab matched by short
+			// id even when its session id is unknown.
 			if m.switchToOpen(item.a.SessionID, item.a.Short) {
 				return m, nil
+			}
+			if item.a.SessionID == "" {
+				return m, nil // nothing to resume without a session id
 			}
 			return m, m.resumeAgent(item.a)
 		}
@@ -211,6 +216,9 @@ func (m *Model) attachAgent(a claude.Agent) {
 	}
 
 	t := m.activeTab()
+	if t == nil {
+		return
+	}
 	t.SessionID = a.SessionID
 	if st, ok := claude.StateFromJob(a.State); ok {
 		t.status = st
