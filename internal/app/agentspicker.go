@@ -84,7 +84,10 @@ func truncateTo(s string, n int) string {
 
 type agentsPicker struct {
 	list     list.Model
-	stopping bool // a worker is being stopped before resuming with history
+	stopping bool       // a worker is being stopped before resuming with history
+	confirm  *agentItem // pending x-action awaiting y/N
+	busy     string     // progress notice while a destructive action runs
+	notice   string     // transient hint (e.g. "close its tab first")
 }
 
 func newAgentsPicker(m *Model, width, height int) *agentsPicker {
@@ -110,10 +113,40 @@ func newAgentsPicker(m *Model, width, height int) *agentsPicker {
 }
 
 func (m *Model) handleAgentsPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	p := m.agents
+	if p.busy != "" {
+		return m, nil // action in flight; ignore keys
+	}
+	if p.confirm != nil {
+		item := *p.confirm
+		p.confirm = nil
+		if s := msg.String(); s == "y" || s == "Y" {
+			if item.a.Live {
+				p.busy = "stopping background agent…"
+			} else {
+				p.busy = "removing from agents list…"
+			}
+			return m, agentRemoveCmd(item.a)
+		}
+		return m, nil // anything else cancels
+	}
+	p.notice = ""
+
 	if m.agents.list.FilterState() != list.Filtering {
 		switch msg.String() {
 		case "esc", "ctrl+c", "q":
 			m.enterSessionMode()
+			return m, nil
+		case "x":
+			item, ok := m.agents.list.SelectedItem().(agentItem)
+			if !ok {
+				return m, nil
+			}
+			if item.openTab > 0 {
+				p.notice = fmt.Sprintf("agent is open in tab %d — close the tab first", item.openTab)
+				return m, nil
+			}
+			p.confirm = &item
 			return m, nil
 		case "enter":
 			item, ok := m.agents.list.SelectedItem().(agentItem)
@@ -197,11 +230,43 @@ func (p *agentsPicker) view(width, rows int) string {
 		return lipgloss.NewStyle().Padding(2, 4).
 			Render("stopping background agent, then resuming with history…")
 	}
+	if p.busy != "" {
+		return lipgloss.NewStyle().Padding(2, 4).Render(p.busy)
+	}
 	p.list.SetSize(min(width-4, 110), rows-3)
 	body := p.list.View()
-	body += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(
-		"enter: open (live agents attach · finished agents resume with history) · s: stop & resume live agent · /: filter · esc: cancel")
+	switch {
+	case p.confirm != nil:
+		name := p.confirm.a.Name
+		if name == "" {
+			name = p.confirm.a.Short
+		}
+		what := "Remove \"" + tabTitle(name) + "\" from this list? Its conversation stays resumable."
+		if p.confirm.a.Live {
+			what = "Stop background agent \"" + tabTitle(name) + "\"? Its conversation stays resumable."
+		}
+		body += "\n" + confirmStyle.Render(" "+what+"  y: yes · any other key: cancel ")
+	case p.notice != "":
+		body += "\n" + noticeStyle.Render(p.notice)
+	default:
+		body += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(
+			"enter: open (live attach · finished resume) · s: stop & resume live · x: stop / remove · /: filter · esc: cancel")
+	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(body)
+}
+
+// agentRemoveCmd stops a live worker, or removes a finished agent's job
+// record from the list. The conversation transcript is untouched.
+func agentRemoveCmd(a claude.Agent) tea.Cmd {
+	return func() tea.Msg {
+		if a.Live {
+			_ = claude.StopAgent(a.Short)
+			claude.WaitAgentGone(a.SessionID, 5*time.Second)
+		} else {
+			_ = claude.RemoveJob(a.Short)
+		}
+		return pickerRefreshMsg{mode: uiAgentsPicker}
+	}
 }
 
 // applyJobState updates an attached tab from daemon job state.

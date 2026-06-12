@@ -389,6 +389,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case damageMsg:
 		return m, nil // re-render
 
+	case pickerRefreshMsg:
+		// Rebuild the picker after a destructive action so the row is gone.
+		switch {
+		case msg.mode == uiResumePicker && m.mode == uiResumePicker:
+			m.resume = newResumePicker(m, m.width, m.bodyRows())
+		case msg.mode == uiAgentsPicker && m.mode == uiAgentsPicker:
+			m.agents = newAgentsPicker(m, m.width, m.bodyRows())
+		}
+		return m, nil
+
 	case agentStoppedMsg:
 		dir := msg.dir
 		if _, err := os.Stat(dir); err != nil {

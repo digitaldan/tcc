@@ -72,6 +72,8 @@ Attached agents get their status from the daemon's job state (`~/.claude/jobs/<i
 
 Both pickers know what's already open: a session or agent that has a tab is marked ("open in tab N") and `Enter` switches to that tab instead of opening a duplicate.
 
+Cleanup lives on `x` (with a y/N confirmation): in the resume picker it deletes the session's transcript (stopping its background worker first if one is running); in the agents picker it stops a live agent, or removes a finished one from the list — the conversation stays resumable either way. Sessions that ran as background agents are tagged with a green `(bg)`.
+
 ## How it works
 
 - **Embedded terminals, no tmux required.** Each `claude` child runs in its own PTY, parsed by an embedded terminal emulator ([charmbracelet/x/vt](https://github.com/charmbracelet/x)). The active tab's screen renders below a one-row tab bar; background sessions keep running and stay renderable for instant switching.
