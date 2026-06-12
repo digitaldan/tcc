@@ -129,6 +129,14 @@ func Run(args []string) error {
 
 	_, err = p.Run()
 	debugf("p.Run returned: %v", err)
+	// Final snapshot at quit: per-change saves already cover crashes, but
+	// another tcc instance (or a test run) may have written tabs.json since
+	// our last change — make this instance's quit state the one restored.
+	// Skipped when the program never initialized (no window size means
+	// restoreTabs never ran) — saving then would wipe the stored tabs.
+	if err == nil && m.width > 0 {
+		m.saveTabs()
+	}
 	if m.stopWatcher != nil {
 		m.stopWatcher()
 	}

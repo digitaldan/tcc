@@ -6,13 +6,22 @@ import (
 	"path/filepath"
 )
 
-// Dir returns tcc's data directory (~/.tcc), creating it if needed.
+// Dir returns tcc's data directory (~/.tcc, or $TCC_CONFIG_DIR when set —
+// useful for testing and for isolating multiple tcc setups), creating it if
+// needed.
 func Dir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	d := os.Getenv("TCC_CONFIG_DIR")
+	if d == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		d = filepath.Join(home, ".tcc")
+	} else if abs, err := filepath.Abs(d); err == nil {
+		// A relative override would resolve against whatever directory tcc
+		// happens to run from, scattering state dirs around.
+		d = abs
 	}
-	d := filepath.Join(home, ".tcc")
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return "", err
 	}
