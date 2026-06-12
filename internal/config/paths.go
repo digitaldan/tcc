@@ -17,6 +17,10 @@ func Dir() (string, error) {
 			return "", err
 		}
 		d = filepath.Join(home, ".tcc")
+	} else if abs, err := filepath.Abs(d); err == nil {
+		// A relative override would resolve against whatever directory tcc
+		// happens to run from, scattering state dirs around.
+		d = abs
 	}
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return "", err
