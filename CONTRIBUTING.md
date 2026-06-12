@@ -18,8 +18,10 @@ Requires Go 1.22+ and the `claude` CLI on PATH for manual testing. CI runs build
 
 ```sh
 go build -o /tmp/m0harness ./hack/m0harness
-/tmp/m0harness -bin ./tcc -dir /tmp/some-project -wait 5s SNAP CTRLQ 400ms c 1s SNAP
+TCC_CONFIG_DIR=/tmp/tcc-test /tmp/m0harness -bin ./tcc -dir /tmp/some-project -wait 5s SNAP CTRLQ 400ms c 1s SNAP
 ```
+
+**Always set `TCC_CONFIG_DIR` to a scratch directory when testing** — otherwise test runs share your real `~/.tcc` and will overwrite your tab-persistence state (`tabs.json`). Consider `CLAUDE_CONFIG_DIR` too if the test shouldn't see your real sessions/agents.
 
 Script tokens: durations sleep, `ENTER`/`ESC`/`CTRLQ`/`CTRLU` send keys, `NUDGE` forces a resize repaint, `SNAP` prints the screen, anything else is typed verbatim. One caveat: consecutive fast writes coalesce into a single key event, so drive list filtering with delays between keystrokes.
 
