@@ -234,6 +234,15 @@ func StopAgent(short string) error {
 	return exec.CommandContext(ctx, "claude", "stop", short).Run()
 }
 
+// RemoveJob deletes a finished agent's job record (~/.claude/jobs/<short>),
+// removing it from agent listings. The session transcript is untouched.
+func RemoveJob(short string) error {
+	if short == "" {
+		return os.ErrInvalid
+	}
+	return os.RemoveAll(filepath.Join(jobsDir(), short))
+}
+
 // WaitAgentGone polls the roster until the session's worker disappears (or
 // the timeout passes). Returns true if the worker is gone.
 func WaitAgentGone(sessionID string, timeout time.Duration) bool {

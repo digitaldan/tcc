@@ -16,24 +16,33 @@ import (
 
 // resumeItem adapts a ResumableSession to bubbles/list. live is non-nil when
 // the session is currently running as a background worker — resuming then
-// requires stopping the worker first (claude refuses otherwise).
+// requires stopping the worker first (claude refuses otherwise). openTab is
+// the 1-based tab number when the session is already open in tcc (0 = not).
 type resumeItem struct {
-	rs   claude.ResumableSession
-	live *claude.Agent
+	rs      claude.ResumableSession
+	live    *claude.Agent
+	openTab int
 }
+
+var bgTagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
 
 func (i resumeItem) Title() string {
 	t := i.rs.Title
 	switch {
+	case i.openTab > 0:
+		t = "▸ " + t
 	case i.live != nil:
 		t = "● " + t
 	case i.rs.Background:
-		t += "  (bg)"
+		t += "  " + bgTagStyle.Render("(bg)")
 	}
 	return t
 }
 
 func (i resumeItem) Description() string {
+	if i.openTab > 0 {
+		return fmt.Sprintf("already open in tab %d — enter switches to it", i.openTab)
+	}
 	if i.live != nil {
 		return "running as background agent — enter stops it and resumes here"
 	}
@@ -49,15 +58,21 @@ func (i resumeItem) FilterValue() string { return i.rs.Title + " " + i.rs.Dir }
 
 type resumePicker struct {
 	list     list.Model
-	stopping bool // a background worker is being stopped before resume
+	stopping bool        // a background worker is being stopped before resume
+	confirm  *resumeItem // pending x-deletion awaiting y/N
+	busy     string      // progress notice while a destructive action runs
+	notice   string      // transient hint (e.g. "close its tab first")
 }
 
-func newResumePicker(width, height int) *resumePicker {
+func newResumePicker(m *Model, width, height int) *resumePicker {
 	sessions := claude.ListSessions()
 	active := claude.ActiveAgentsBySession()
 	items := make([]list.Item, 0, len(sessions))
 	for _, rs := range sessions {
 		item := resumeItem{rs: rs}
+		if i := m.tabIndexBySessionID(rs.SessionID); i >= 0 {
+			item.openTab = i + 1
+		}
 		if a, ok := active[rs.SessionID]; ok {
 			a := a
 			item.live = &a
@@ -75,11 +90,41 @@ func newResumePicker(width, height int) *resumePicker {
 }
 
 func (m *Model) handleResumePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	p := m.resume
+	if p.busy != "" {
+		return m, nil // action in flight; ignore keys
+	}
+	if p.confirm != nil {
+		item := *p.confirm
+		p.confirm = nil
+		if confirmKey(msg.String()) {
+			if item.live != nil {
+				p.busy = "stopping background agent and deleting session…"
+			} else {
+				p.busy = "deleting session…"
+			}
+			return m, deleteSessionCmd(item)
+		}
+		return m, nil // anything else cancels
+	}
+	p.notice = ""
+
 	// Let the list's filter input see keys first when filtering.
 	if m.resume.list.FilterState() != list.Filtering {
 		switch msg.String() {
 		case "esc", "ctrl+c", "q":
 			m.enterSessionMode()
+			return m, nil
+		case "x":
+			item, ok := m.resume.list.SelectedItem().(resumeItem)
+			if !ok {
+				return m, nil
+			}
+			if item.openTab > 0 {
+				p.notice = "session is open in tab " + fmt.Sprint(item.openTab) + " — close the tab first"
+				return m, nil
+			}
+			p.confirm = &item
 			return m, nil
 		case "enter":
 			item, ok := m.resume.list.SelectedItem().(resumeItem)
@@ -88,6 +133,9 @@ func (m *Model) handleResumePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			rs := item.rs
+			if m.switchToOpen(rs.SessionID, "") {
+				return m, nil
+			}
 			if item.live != nil {
 				// Worker must be stopped before the session can be resumed.
 				m.resume.stopping = true
@@ -108,13 +156,55 @@ func (m *Model) handleResumePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+var (
+	confirmStyle = lipgloss.NewStyle().Background(lipgloss.Color("203")).Foreground(lipgloss.Color("16")).Bold(true)
+	noticeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+)
+
+// confirmKey reports whether a key confirms a pending x-action: y, or x
+// again (press-twice).
+func confirmKey(s string) bool {
+	return s == "y" || s == "Y" || s == "x" || s == "X"
+}
+
+const confirmHint = "y/x: yes · any other key: cancel"
+
 func (p *resumePicker) view(width, rows int) string {
 	if p.stopping {
 		return lipgloss.NewStyle().Padding(2, 4).
 			Render("stopping background agent, then resuming with history…")
 	}
-	p.list.SetSize(min(width-4, 100), rows-2)
-	return lipgloss.NewStyle().Padding(1, 2).Render(p.list.View())
+	if p.busy != "" {
+		return lipgloss.NewStyle().Padding(2, 4).Render(p.busy)
+	}
+	p.list.SetSize(min(width-4, 100), rows-4)
+	body := p.list.View()
+	switch {
+	case p.confirm != nil:
+		what := "Delete session \"" + tabTitle(p.confirm.rs.Title) + "\"?"
+		if p.confirm.live != nil {
+			what = "Stop background agent and delete session \"" + tabTitle(p.confirm.rs.Title) + "\"?"
+		}
+		body += "\n" + confirmStyle.Render(" "+what+"  "+confirmHint+" ")
+	case p.notice != "":
+		body += "\n" + noticeStyle.Render(p.notice)
+	default:
+		body += "\n" + footerStyle.Render("enter: open · x: delete session · /: filter · esc: cancel")
+	}
+	return lipgloss.NewStyle().Padding(1, 2).Render(body)
+}
+
+// deleteSessionCmd stops the session's worker if one is running, then
+// removes its transcript files.
+func deleteSessionCmd(item resumeItem) tea.Cmd {
+	return func() tea.Msg {
+		if item.live != nil {
+			_ = claude.StopAgent(item.live.Short)
+			claude.WaitAgentGone(item.rs.SessionID, 5*time.Second)
+		}
+		_ = claude.DeleteSessionFiles(item.rs)
+		return pickerRefreshMsg{mode: uiResumePicker}
+	}
 }
 
 // tabTitle shortens a session title to fit the tab bar.

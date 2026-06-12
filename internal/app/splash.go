@@ -61,11 +61,11 @@ func (m *Model) handleSplashKey(key string) (handled bool, quit bool) {
 		return true, false
 	case "r":
 		m.mode = uiResumePicker
-		m.resume = newResumePicker(m.width, m.bodyRows())
+		m.resume = newResumePicker(m, m.width, m.bodyRows())
 		return true, false
 	case "a":
 		m.mode = uiAgentsPicker
-		m.agents = newAgentsPicker(m.width, m.bodyRows())
+		m.agents = newAgentsPicker(m, m.width, m.bodyRows())
 		return true, false
 	case "q", "d", "ctrl+c":
 		return true, true

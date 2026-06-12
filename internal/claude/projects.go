@@ -76,6 +76,25 @@ func trimExt(name string) string {
 	return name[:len(name)-len(filepath.Ext(name))]
 }
 
+// DeleteSessionFiles removes a session's transcript and any sidecar files
+// (checkpoints etc.) from its project directory.
+func DeleteSessionFiles(rs ResumableSession) error {
+	if rs.SessionID == "" || rs.Path == "" {
+		return os.ErrInvalid
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(rs.Path), rs.SessionID+"*"))
+	if err != nil {
+		return err
+	}
+	var firstErr error
+	for _, m := range matches {
+		if err := os.Remove(m); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // TranscriptTitle finds the transcript for a session ID anywhere under the
 // projects tree and returns its title ("" if not found).
 func TranscriptTitle(sessionID string) string {

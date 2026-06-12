@@ -48,6 +48,7 @@ func NewClaude(opts SpawnOptions) *Session {
 		// don't apply to the already-running worker.
 		args = []string{"attach", opts.Attach}
 		s.Kind = KindAttached
+		s.AgentShort = opts.Attach
 	} else {
 		if opts.SettingsFile != "" {
 			args = append(args, "--settings", opts.SettingsFile)
