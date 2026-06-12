@@ -26,11 +26,12 @@ const (
 )
 
 type Session struct {
-	TabID     string // tcc tab UUID; keys hook state files
-	SessionID string // claude session UUID (pre-assigned or learned from hooks)
-	Title     string
-	Dir       string
-	Kind      Kind
+	TabID      string // tcc tab UUID; keys hook state files
+	SessionID  string // claude session UUID (pre-assigned or learned from hooks)
+	AgentShort string // daemon short id when attached to a background agent
+	Title      string
+	Dir        string
+	Kind       Kind
 
 	Cmd  *exec.Cmd
 	PTY  *os.File

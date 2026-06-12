@@ -16,15 +16,19 @@ import (
 
 // resumeItem adapts a ResumableSession to bubbles/list. live is non-nil when
 // the session is currently running as a background worker — resuming then
-// requires stopping the worker first (claude refuses otherwise).
+// requires stopping the worker first (claude refuses otherwise). openTab is
+// the 1-based tab number when the session is already open in tcc (0 = not).
 type resumeItem struct {
-	rs   claude.ResumableSession
-	live *claude.Agent
+	rs      claude.ResumableSession
+	live    *claude.Agent
+	openTab int
 }
 
 func (i resumeItem) Title() string {
 	t := i.rs.Title
 	switch {
+	case i.openTab > 0:
+		t = "▸ " + t
 	case i.live != nil:
 		t = "● " + t
 	case i.rs.Background:
@@ -34,6 +38,9 @@ func (i resumeItem) Title() string {
 }
 
 func (i resumeItem) Description() string {
+	if i.openTab > 0 {
+		return fmt.Sprintf("already open in tab %d — enter switches to it", i.openTab)
+	}
 	if i.live != nil {
 		return "running as background agent — enter stops it and resumes here"
 	}
@@ -52,12 +59,15 @@ type resumePicker struct {
 	stopping bool // a background worker is being stopped before resume
 }
 
-func newResumePicker(width, height int) *resumePicker {
+func newResumePicker(m *Model, width, height int) *resumePicker {
 	sessions := claude.ListSessions()
 	active := claude.ActiveAgentsBySession()
 	items := make([]list.Item, 0, len(sessions))
 	for _, rs := range sessions {
 		item := resumeItem{rs: rs}
+		if i := m.tabIndexBySessionID(rs.SessionID); i >= 0 {
+			item.openTab = i + 1
+		}
 		if a, ok := active[rs.SessionID]; ok {
 			a := a
 			item.live = &a
@@ -88,6 +98,9 @@ func (m *Model) handleResumePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			rs := item.rs
+			if m.switchToOpen(rs.SessionID, "") {
+				return m, nil
+			}
 			if item.live != nil {
 				// Worker must be stopped before the session can be resumed.
 				m.resume.stopping = true

@@ -194,6 +194,48 @@ func (m *Model) tabByID(tabID string) *tab {
 	return nil
 }
 
+// tabIndexBySessionID finds the tab already hosting a Claude session ("" never
+// matches). Returns -1 when not open.
+func (m *Model) tabIndexBySessionID(sessionID string) int {
+	if sessionID == "" {
+		return -1
+	}
+	for i, t := range m.sessions {
+		if t.SessionID == sessionID {
+			return i
+		}
+	}
+	return -1
+}
+
+// tabIndexByAgentShort finds the tab attached to a daemon worker. Returns -1
+// when not open.
+func (m *Model) tabIndexByAgentShort(short string) int {
+	if short == "" {
+		return -1
+	}
+	for i, t := range m.sessions {
+		if t.AgentShort == short {
+			return i
+		}
+	}
+	return -1
+}
+
+// switchToOpen activates an existing tab for an agent/session if one exists.
+func (m *Model) switchToOpen(sessionID, agentShort string) bool {
+	i := m.tabIndexBySessionID(sessionID)
+	if i < 0 {
+		i = m.tabIndexByAgentShort(agentShort)
+	}
+	if i < 0 {
+		return false
+	}
+	m.setActive(i)
+	m.enterSessionMode()
+	return true
+}
+
 // spawn starts a new claude session in dir and makes it the active tab.
 func (m *Model) spawn(dir string, extraArgs []string, kind session.Kind, title string) error {
 	return m.spawnWith(session.SpawnOptions{
@@ -466,11 +508,11 @@ func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		m.mode = uiResumePicker
-		m.resume = newResumePicker(m.width, m.bodyRows())
+		m.resume = newResumePicker(m, m.width, m.bodyRows())
 		return m, nil
 	case "a":
 		m.mode = uiAgentsPicker
-		m.agents = newAgentsPicker(m.width, m.bodyRows())
+		m.agents = newAgentsPicker(m, m.width, m.bodyRows())
 		return m, nil
 	case "n", "tab":
 		m.cycleTab(1)

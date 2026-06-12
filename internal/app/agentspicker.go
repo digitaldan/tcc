@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,8 +14,12 @@ import (
 	"github.com/digitaldan/tcc/internal/status"
 )
 
-// agentItem adapts a background agent to bubbles/list.
-type agentItem struct{ a claude.Agent }
+// agentItem adapts a background agent to bubbles/list. openTab is the
+// 1-based tab number when the agent is already open in tcc (0 = not).
+type agentItem struct {
+	a       claude.Agent
+	openTab int
+}
 
 // agentState maps the agent onto tcc's status model for glyphs/colors.
 func (i agentItem) agentState() status.State {
@@ -39,6 +44,10 @@ func (i agentItem) Title() string {
 
 func (i agentItem) Description() string {
 	var parts []string
+
+	if i.openTab > 0 {
+		parts = append(parts, fmt.Sprintf("open in tab %d — enter switches", i.openTab))
+	}
 
 	state := i.a.State
 	if state == "" {
@@ -78,11 +87,17 @@ type agentsPicker struct {
 	stopping bool // a worker is being stopped before resuming with history
 }
 
-func newAgentsPicker(width, height int) *agentsPicker {
+func newAgentsPicker(m *Model, width, height int) *agentsPicker {
 	agents := claude.ListAgents()
 	items := make([]list.Item, 0, len(agents))
 	for _, a := range agents {
-		items = append(items, agentItem{a})
+		item := agentItem{a: a}
+		if i := m.tabIndexBySessionID(a.SessionID); i >= 0 {
+			item.openTab = i + 1
+		} else if i := m.tabIndexByAgentShort(a.Short); i >= 0 {
+			item.openTab = i + 1
+		}
+		items = append(items, item)
 	}
 
 	d := list.NewDefaultDelegate()
@@ -106,6 +121,9 @@ func (m *Model) handleAgentsPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.enterSessionMode()
 				return m, nil
 			}
+			if m.switchToOpen(item.a.SessionID, item.a.Short) {
+				return m, nil
+			}
 			if item.a.Live {
 				m.attachAgent(item.a)
 				return m, nil
@@ -115,6 +133,9 @@ func (m *Model) handleAgentsPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "s":
 			item, ok := m.agents.list.SelectedItem().(agentItem)
 			if !ok || item.a.SessionID == "" {
+				return m, nil
+			}
+			if m.switchToOpen(item.a.SessionID, item.a.Short) {
 				return m, nil
 			}
 			return m, m.resumeAgent(item.a)
@@ -157,6 +178,7 @@ func (m *Model) attachAgent(a claude.Agent) {
 	}
 
 	t := m.activeTab()
+	t.SessionID = a.SessionID
 	if st, ok := claude.StateFromJob(a.State); ok {
 		t.status = st
 		t.detail = a.WaitingFor
