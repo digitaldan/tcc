@@ -495,8 +495,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case pageScrollMsg:
-		// Ctrl+PageUp/Down: scroll a page of this tab's history, keeping a
-		// line of context (like a pager).
+		// Ctrl+Shift+PageUp/Down: scroll a page of this tab's history, keeping
+		// a line of context (like a pager).
 		if t := m.activeTab(); t != nil && t.Term != nil && !t.Exited() {
 			page := m.bodyRows() - 1
 			if page < 1 {

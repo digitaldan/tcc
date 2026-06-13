@@ -283,7 +283,7 @@ var (
 func scanPageScroll(p []byte) (delta, n int, partial bool) {
 	for _, c := range [][]byte{pageUp, pageDown} {
 		if bytes.HasPrefix(p, c) {
-			if c[2] == '5' { // CSI 5;6~ = PageUp
+			if bytes.Equal(c, pageUp) {
 				return -1, len(c), false
 			}
 			return 1, len(c), false
