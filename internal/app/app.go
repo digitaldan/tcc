@@ -451,9 +451,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tabTitleMsg:
 		// Shell-set title wins (it's what the user configured to display).
 		if t := m.tabByID(msg.tabID); t != nil && t.Kind == session.KindTerminal {
-			if title := strings.TrimSpace(msg.title); title != "" {
-				t.Title = tabTitle(title)
+			if title := tabTitle(strings.TrimSpace(msg.title)); title != "" && (title != t.Title || !t.shellTitle) {
+				t.Title = title
 				t.shellTitle = true
+				m.saveTabs() // persist so a restart shows the shell's title
 			}
 		}
 		return m, nil
@@ -732,15 +733,25 @@ func ringBell() {
 }
 
 // parseFileURL extracts a filesystem path from an OSC 7 working-directory
-// report (typically a file://host/path URL; a bare path also works). Returns
-// "" when nothing usable can be parsed.
+// report. The spec form is file://<host>/<path> with percent-encoding, but
+// some shells emit a bare path; anything else (another URL scheme) is ignored.
+// We strip the host and percent-decode the path ourselves rather than via
+// url.Parse, whose query/fragment handling would mangle paths containing
+// '?', '#', or a literal '%'. Returns "" when nothing usable is found.
 func parseFileURL(s string) string {
 	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
+	if rest, ok := strings.CutPrefix(s, "file://"); ok {
+		// Drop the host component (everything up to the first slash).
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			rest = rest[i:]
+		}
+		if dec, err := url.PathUnescape(rest); err == nil {
+			return dec
+		}
+		return rest
 	}
-	if u, err := url.Parse(s); err == nil && u.Path != "" {
-		return u.Path
+	if strings.Contains(s, "://") {
+		return "" // some other URL scheme, not a working directory
 	}
-	return ""
+	return s
 }

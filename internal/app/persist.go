@@ -12,11 +12,12 @@ import (
 
 // savedTab is one tab's identity, enough to reopen it after a quit or crash.
 type savedTab struct {
-	Kind       string `json:"kind"` // "spawned" | "resumed" | "attached"
+	Kind       string `json:"kind"` // "spawned" | "resumed" | "attached" | "terminal"
 	SessionID  string `json:"session_id,omitempty"`
 	AgentShort string `json:"agent_short,omitempty"`
 	Dir        string `json:"dir,omitempty"`
 	Title      string `json:"title,omitempty"`
+	ShellTitle bool   `json:"shell_title,omitempty"` // terminal: title was shell-set (OSC)
 }
 
 // savedState is the persisted tab set, written to ~/.tcc/tabs.json on every
@@ -65,6 +66,7 @@ func (m *Model) saveTabs() {
 			AgentShort: t.AgentShort,
 			Dir:        t.Dir,
 			Title:      t.Title,
+			ShellTitle: t.shellTitle,
 		})
 	}
 	data, err := json.MarshalIndent(st, "", "  ")
@@ -123,6 +125,9 @@ func (m *Model) restoreTabs(st savedState) {
 				debugf("restoreTabs: terminal spawn in %s failed: %v", dir, err)
 			} else if t := m.activeTab(); t != nil && s.Title != "" {
 				t.Title = s.Title // until the shell reports its own
+				// Preserve "shell title wins" so cwd polling doesn't clobber it;
+				// the restored shell re-emits OSC titles to keep it current.
+				t.shellTitle = s.ShellTitle
 			}
 			continue
 		}
