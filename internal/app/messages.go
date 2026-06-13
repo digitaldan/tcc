@@ -53,6 +53,10 @@ type tabNavMsg struct{ delta int }
 // wheelMsg reports wheel input the session didn't consume (scrollback).
 type wheelMsg struct{ delta int }
 
+// pageScrollMsg reports a Ctrl+PageUp/PageDown page-scroll of scrollback
+// (-1 up / +1 down).
+type pageScrollMsg struct{ delta int }
+
 // scrollResetMsg snaps the active tab back to the live view.
 type scrollResetMsg struct{}
 

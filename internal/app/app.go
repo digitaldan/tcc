@@ -112,6 +112,9 @@ func Run(args []string) error {
 	m.router.OnWheel(func(delta int) {
 		p.Send(wheelMsg{delta: delta})
 	})
+	m.router.OnPage(func(delta int) {
+		p.Send(pageScrollMsg{delta: delta})
+	})
 	m.router.OnAnyKey(func() {
 		p.Send(scrollResetMsg{})
 	})
@@ -486,6 +489,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// (3 lines per notch, like most terminals).
 		if t := m.activeTab(); t != nil && t.Term != nil && !t.Exited() {
 			t.Term.ScrollBy(-msg.delta * 3)
+			off, _ := t.Term.ScrollPosition()
+			m.router.SetScrolled(off > 0)
+		}
+		return m, nil
+
+	case pageScrollMsg:
+		// Ctrl+PageUp/Down: scroll a page of this tab's history, keeping a
+		// line of context (like a pager).
+		if t := m.activeTab(); t != nil && t.Term != nil && !t.Exited() {
+			page := m.bodyRows() - 1
+			if page < 1 {
+				page = 1
+			}
+			t.Term.ScrollBy(-msg.delta * page)
 			off, _ := t.Term.ScrollPosition()
 			m.router.SetScrolled(off > 0)
 		}
