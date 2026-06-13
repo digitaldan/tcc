@@ -24,6 +24,7 @@ const (
 	KindSpawned  Kind = iota // fresh `claude` in a directory
 	KindResumed              // `claude --resume <id>`
 	KindAttached             // `claude attach <short-id>` (background agent)
+	KindTerminal             // a plain shell, not a claude session
 )
 
 type Session struct {
@@ -44,6 +45,11 @@ type Session struct {
 	OnExit func(exitCode int)
 	// OnBell is called when the child rings the terminal bell.
 	OnBell func()
+	// OnTitle is called when the child sets the terminal title (OSC 0/2);
+	// used for terminal tabs whose label follows the shell.
+	OnTitle func(string)
+	// OnWorkingDir is called when the child reports its cwd (OSC 7).
+	OnWorkingDir func(string)
 	// Prefill is terminal text fed into the emulator (and thus scrollback)
 	// before the child starts — e.g. transcript history for attached agents.
 	Prefill []byte
@@ -66,6 +72,12 @@ func (s *Session) Start(cols, rows int) error {
 	if s.OnBell != nil {
 		s.Term.OnBell(s.OnBell)
 	}
+	if s.OnTitle != nil {
+		s.Term.OnTitle(s.OnTitle)
+	}
+	if s.OnWorkingDir != nil {
+		s.Term.OnWorkingDir(s.OnWorkingDir)
+	}
 	if len(s.Prefill) > 0 {
 		// Feed history, then scroll it off-screen so it lands in scrollback
 		// (reachable with the wheel) rather than flashing under the child's
@@ -80,7 +92,11 @@ func (s *Session) Start(cols, rows int) error {
 	}
 	s.PTY = f
 
+	// notify carries damage signals; it has two senders (the PTY reader and
+	// the coalescer below) so it is never closed — sending on a closed channel
+	// would panic. Shutdown is signalled via done instead.
 	notify := make(chan struct{}, 1)
+	done := make(chan struct{})
 
 	// emulator responses -> PTY (capability query answers). Must start before
 	// the PTY reader: Feed blocks on the response pipe until it's drained.
@@ -110,7 +126,12 @@ func (s *Session) Start(cols, rows int) error {
 
 	// Coalesced damage notifications
 	go func() {
-		for range notify {
+		for {
+			select {
+			case <-done:
+				return
+			case <-notify:
+			}
 			s.dirty.Store(false)
 			if s.OnDamage != nil {
 				s.OnDamage()
@@ -147,7 +168,7 @@ func (s *Session) Start(cols, rows int) error {
 		}
 		s.ExitCode = code
 		s.exited.Store(true)
-		close(notify)
+		close(done) // stops the coalescer; notify is left unclosed (2 senders)
 		if s.OnExit != nil {
 			s.OnExit(code)
 		}
@@ -157,6 +178,16 @@ func (s *Session) Start(cols, rows int) error {
 }
 
 func (s *Session) Exited() bool { return s.exited.Load() }
+
+// Cwd returns the child process's current working directory, used by terminal
+// tabs to track the shell's directory. Returns false when the process is gone
+// or the platform has no implementation.
+func (s *Session) Cwd() (string, bool) {
+	if s.Cmd == nil || s.Cmd.Process == nil || s.exited.Load() {
+		return "", false
+	}
+	return processCwd(s.Cmd.Process.Pid)
+}
 
 func (s *Session) Resize(cols, rows int) {
 	if s.PTY != nil && !s.exited.Load() {

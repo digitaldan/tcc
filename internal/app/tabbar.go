@@ -7,8 +7,12 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/digitaldan/tcc/internal/session"
 	"github.com/digitaldan/tcc/internal/status"
 )
+
+// terminalGlyph marks a plain-shell tab, distinguishing it from claude tabs.
+const terminalGlyph = "❯"
 
 var (
 	tabBarStyle    = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("250"))
@@ -48,10 +52,14 @@ func (m *Model) tabBar() string {
 		if i == m.active {
 			style = tabActiveStyle
 		}
+		glyphCh, glyphColor := glyphFor(t.status), glyphColors[t.status]
+		if t.Kind == session.KindTerminal {
+			glyphCh, glyphColor = terminalGlyph, lipgloss.Color("75")
+		}
 		glyph := lipgloss.NewStyle().
 			Background(style.GetBackground()).
-			Foreground(glyphColors[t.status]).
-			Render(glyphFor(t.status))
+			Foreground(glyphColor).
+			Render(glyphCh)
 		label := fmt.Sprintf(" %d:%s ", i+1, t.Title)
 		b.WriteString(style.Render(label) + glyph + style.Render(" "))
 		used += lipgloss.Width(label) + 2
@@ -68,9 +76,13 @@ func (m *Model) tabBar() string {
 	}
 	switch m.mode {
 	case uiChord:
-		hint = chordStyle.Render(" " + m.cfg.PrefixLabel() + "  c:new r:resume a:agents n/p:switch x:close d:quit ")
+		hint = chordStyle.Render(" " + m.cfg.PrefixLabel() + "  c:new t:term r:resume a:agents n/p:switch x:close d:quit ")
 	case uiDirPrompt:
-		hint = chordStyle.Render(" new session ")
+		label := " new session "
+		if m.dirPrompt != nil && m.dirPrompt.terminal {
+			label = " new terminal "
+		}
+		hint = chordStyle.Render(label)
 	case uiResumePicker:
 		hint = chordStyle.Render(" resume session ")
 	case uiAgentsPicker:

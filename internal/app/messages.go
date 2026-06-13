@@ -32,6 +32,18 @@ type jobStateMsg struct {
 // bellMsg signals that a session rang the terminal bell.
 type bellMsg struct{ tabID string }
 
+// tabTitleMsg carries a terminal tab's shell-set title (OSC 0/2).
+type tabTitleMsg struct {
+	tabID string
+	title string
+}
+
+// tabCwdMsg carries a terminal tab's reported working directory (OSC 7).
+type tabCwdMsg struct {
+	tabID string
+	dir   string
+}
+
 // tabClickMsg reports a mouse press on the tab bar (1-based column).
 type tabClickMsg struct{ col int }
 

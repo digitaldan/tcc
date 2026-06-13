@@ -55,7 +55,11 @@ func (i dirItem) Title() string {
 	case itemParent:
 		return "../"
 	case itemHere:
-		return "  ▶ start session here"
+		noun := "session"
+		if i.name != "" {
+			noun = i.name
+		}
+		return "  ▶ start " + noun + " here"
 	default:
 		return "    " + i.name + "/"
 	}
@@ -99,10 +103,11 @@ type dirPrompt struct {
 	err    string
 
 	showHidden bool
+	terminal   bool // open a plain terminal here instead of a claude session
 }
 
-func newDirPrompt(initial string) *dirPrompt {
-	d := &dirPrompt{curDir: initial, atStart: true}
+func newDirPrompt(initial string, terminal bool) *dirPrompt {
+	d := &dirPrompt{curDir: initial, atStart: true, terminal: terminal}
 	d.recents = recentProjectDirs(initial, 6)
 
 	l := list.New(nil, list.NewDefaultDelegate(), 0, 0)
@@ -144,6 +149,19 @@ func recentProjectDirs(cur string, max int) []string {
 func (d *dirPrompt) reload() {
 	var items []list.Item
 
+	hereNoun := "session"
+	if d.terminal {
+		hereNoun = "terminal"
+	}
+	here := dirItem{kind: itemHere, path: d.curDir, name: hereNoun}
+	// Terminals are usually opened right where you already are (to pair a shell
+	// with the active tab), so the current directory leads and is preselected;
+	// the session browser leads with recent projects instead.
+	leadHere := d.atStart && d.terminal
+	if leadHere {
+		items = append(items, here)
+	}
+
 	if d.atStart {
 		for _, r := range d.recents {
 			items = append(items, dirItem{kind: itemRecent, path: r})
@@ -153,7 +171,9 @@ func (d *dirPrompt) reload() {
 	if parent := filepath.Dir(d.curDir); parent != d.curDir {
 		items = append(items, dirItem{kind: itemParent, path: parent})
 	}
-	items = append(items, dirItem{kind: itemHere, path: d.curDir})
+	if !leadHere {
+		items = append(items, here)
+	}
 	firstSubdir := len(items)
 
 	entries, err := os.ReadDir(d.curDir)
@@ -182,6 +202,8 @@ func (d *dirPrompt) reload() {
 	d.list.SetItems(items)
 	d.list.ResetFilter()
 	switch {
+	case leadHere:
+		d.list.Select(0) // terminal: "start here" leads, ready for Enter
 	case d.atStart:
 		d.list.Select(0) // initial view: recents first
 	case firstSubdir < len(items):
@@ -277,14 +299,20 @@ func (m *Model) handleManualEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// openSessionIn validates dir and spawns a session there.
+// openSessionIn validates dir and spawns a claude session — or a plain
+// terminal, when the prompt was opened for one — there.
 func (m *Model) openSessionIn(dir string) (tea.Model, tea.Cmd) {
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
 		m.dirPrompt.err = fmt.Sprintf("not a directory: %s", dir)
 		return m, nil
 	}
-	if err := m.spawn(dir, nil, session.KindSpawned, ""); err != nil {
+	if m.dirPrompt.terminal {
+		err = m.spawnTerminal(dir)
+	} else {
+		err = m.spawn(dir, nil, session.KindSpawned, "")
+	}
+	if err != nil {
 		m.dirPrompt.err = fmt.Sprintf("spawn failed: %v", err)
 		return m, nil
 	}
@@ -310,9 +338,13 @@ func expandPath(p string) string {
 // view renders the "start session here" header, a divider, the navigation
 // list, and a key-help footer.
 func (d *dirPrompt) view(width, rows int) string {
+	noun := "session"
+	if d.terminal {
+		noun = "terminal"
+	}
 	if d.manual {
 		d.input.Width = max(20, min(width-20, 90))
-		content := "new claude session — type a path\n\n" + d.input.View()
+		content := "new " + noun + " — type a path\n\n" + d.input.View()
 		if d.err != "" {
 			content += "\n" + promptErrStyle.Render(d.err)
 		}
@@ -326,7 +358,7 @@ func (d *dirPrompt) view(width, rows int) string {
 
 	// Where you are; Enter picks from the list below.
 	header := hereBoxStyle.Width(w).Render(
-		hereDimStyle.Render("new session · in ")+herePathStyle.Render(shortenHome(d.curDir)),
+		hereDimStyle.Render("new "+noun+" · in ")+herePathStyle.Render(shortenHome(d.curDir)),
 	) + "\n"
 
 	d.list.SetSize(w, rows-7)
@@ -336,7 +368,7 @@ func (d *dirPrompt) view(width, rows int) string {
 	}
 
 	footer := footerStyle.Render(
-		hereKeyStyle.Render("enter") + footerStyle.Render(": start session in selected dir · ") +
+		hereKeyStyle.Render("enter") + footerStyle.Render(": start "+noun+" in selected dir · ") +
 			hereKeyStyle.Render("→") + footerStyle.Render(": into dir · ") +
 			hereKeyStyle.Render("←") + footerStyle.Render(": up · ~: home · .: hidden · /: filter · e: type path · esc: cancel"))
 

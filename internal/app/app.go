@@ -4,6 +4,7 @@ package app
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ type tab struct {
 	status       status.State
 	detail       string // e.g. notification message for needs_input
 	stopJobWatch func() // attached tabs: stops the daemon job-state watcher
+	shellTitle   bool   // terminal tabs: the shell set an explicit OSC title
 }
 
 // uiMode is what the chrome is currently showing.
@@ -269,7 +271,24 @@ func (m *Model) spawnWith(opts session.SpawnOptions, title string) error {
 	if title != "" {
 		s.Title = title
 	}
-	t := &tab{Session: s, status: status.Starting}
+	return m.addTab(&tab{Session: s, status: status.Starting})
+}
+
+// spawnTerminal starts a plain shell in dir and makes it the active tab. Its
+// label follows the shell's OSC title / cwd reports rather than hook events.
+func (m *Model) spawnTerminal(dir string) error {
+	s := session.NewTerminal(dir)
+	tabID := s.TabID
+	s.OnTitle = func(title string) { m.program.Send(tabTitleMsg{tabID: tabID, title: title}) }
+	s.OnWorkingDir = func(d string) { m.program.Send(tabCwdMsg{tabID: tabID, dir: d}) }
+	return m.addTab(&tab{Session: s, status: status.Idle})
+}
+
+// addTab wires the common session callbacks, starts the child, and makes the
+// tab active. Title/cwd callbacks (terminal tabs) must be set on the session
+// before calling, since Start registers them on the emulator.
+func (m *Model) addTab(t *tab) error {
+	s := t.Session
 	tabID := s.TabID
 	s.OnDamage = func() { m.program.Send(damageMsg{tabID: tabID}) }
 	s.OnExit = func(code int) { m.program.Send(sessionExitMsg{tabID: tabID, code: code}) }
@@ -282,6 +301,42 @@ func (m *Model) spawnWith(opts session.SpawnOptions, title string) error {
 	m.setActive(len(m.sessions) - 1)
 	m.saveTabs()
 	return nil
+}
+
+// refreshTerminalTitles polls each terminal tab's shell cwd (the shell often
+// won't emit OSC reports on its own) and relabels the tab with the directory
+// name. A shell that sets its own title (shellTitle) keeps it; cwd still
+// updates so a restart reopens where you were.
+func (m *Model) refreshTerminalTitles() {
+	changed := false
+	for _, t := range m.sessions {
+		if t.Kind != session.KindTerminal || t.Exited() {
+			continue
+		}
+		dir, ok := t.Cwd()
+		if !ok || dir == t.Dir {
+			continue
+		}
+		t.Dir = dir
+		if !t.shellTitle {
+			t.Title = tabTitle(filepath.Base(dir))
+		}
+		changed = true
+	}
+	if changed {
+		m.saveTabs()
+	}
+}
+
+// activeDir returns the active tab's working directory, falling back to tcc's
+// start directory when there's no active tab or it has vanished.
+func (m *Model) activeDir() string {
+	if t := m.activeTab(); t != nil && t.Dir != "" {
+		if info, err := os.Stat(t.Dir); err == nil && info.IsDir() {
+			return t.Dir
+		}
+	}
+	return m.startDir
 }
 
 // setActive switches the visible tab and points the input router at it.
@@ -386,10 +441,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			level = t.Term.MouseLevel()
 		}
 		m.router.SetMouseLevel(level)
+		m.refreshTerminalTitles()
 		return m, tickCmd()
 
 	case bellMsg:
 		ringBell()
+		return m, nil
+
+	case tabTitleMsg:
+		// Shell-set title wins (it's what the user configured to display).
+		if t := m.tabByID(msg.tabID); t != nil && t.Kind == session.KindTerminal {
+			if title := tabTitle(strings.TrimSpace(msg.title)); title != "" && (title != t.Title || !t.shellTitle) {
+				t.Title = title
+				t.shellTitle = true
+				m.saveTabs() // persist so a restart shows the shell's title
+			}
+		}
+		return m, nil
+
+	case tabCwdMsg:
+		// OSC 7 cwd: update the dir (so restore reopens there) and, unless the
+		// shell sets its own title, label the tab with the directory name.
+		if t := m.tabByID(msg.tabID); t != nil && t.Kind == session.KindTerminal {
+			if dir := parseFileURL(msg.dir); dir != "" {
+				t.Dir = dir
+				if !t.shellTitle {
+					t.Title = tabTitle(filepath.Base(dir))
+				}
+				m.saveTabs()
+			}
+		}
 		return m, nil
 
 	case tabClickMsg:
@@ -563,7 +644,12 @@ func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.requestQuit()
 	case "c":
 		m.mode = uiDirPrompt
-		m.dirPrompt = newDirPrompt(m.startDir)
+		m.dirPrompt = newDirPrompt(m.startDir, false)
+		return m, nil
+	case "t":
+		// New terminal: same browser, defaulting to the active tab's dir.
+		m.mode = uiDirPrompt
+		m.dirPrompt = newDirPrompt(m.activeDir(), true)
 		return m, nil
 	case "r":
 		m.mode = uiResumePicker
@@ -644,4 +730,28 @@ func stopAndResume(a claude.Agent, dir, title string) tea.Cmd {
 // ringBell rings the real terminal's bell. A raw BEL byte is layout-safe.
 func ringBell() {
 	_, _ = os.Stdout.Write([]byte{7})
+}
+
+// parseFileURL extracts a filesystem path from an OSC 7 working-directory
+// report. The spec form is file://<host>/<path> with percent-encoding, but
+// some shells emit a bare path; anything else (another URL scheme) is ignored.
+// We strip the host and percent-decode the path ourselves rather than via
+// url.Parse, whose query/fragment handling would mangle paths containing
+// '?', '#', or a literal '%'. Returns "" when nothing usable is found.
+func parseFileURL(s string) string {
+	s = strings.TrimSpace(s)
+	if rest, ok := strings.CutPrefix(s, "file://"); ok {
+		// Drop the host component (everything up to the first slash).
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			rest = rest[i:]
+		}
+		if dec, err := url.PathUnescape(rest); err == nil {
+			return dec
+		}
+		return rest
+	}
+	if strings.Contains(s, "://") {
+		return "" // some other URL scheme, not a working directory
+	}
+	return s
 }

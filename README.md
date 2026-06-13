@@ -20,6 +20,7 @@ A tabbed terminal manager for [Claude Code](https://claude.com/claude-code) sess
 ## Features
 
 - **Tabs for parallel Claude sessions** — spawn sessions in any directory, switch instantly (`Ctrl+Shift+←/→`, number keys, or click a tab)
+- **Plain terminal tabs too** — open a shell in any directory alongside your Claude sessions (`^Q t`); the tab title tracks the shell's working directory, or the title the shell sets itself
 - **Live status without polling** — tab badges driven by Claude Code's own hook events: busy, idle, waiting for permission/input, errored
 - **Resume anything** — a filterable picker over your past sessions (`~/.claude/projects/`) with their titles, projects, and ages
 - **Background agents, first-class** — see live *and* completed agents like Claude's agent view; attach to a running worker, or stop it and pull the conversation into the foreground with full history
@@ -49,7 +50,7 @@ Requires the [`claude` CLI](https://claude.com/claude-code) on PATH. Supported p
 
 ## Use
 
-Run `tcc` — it starts on a splash screen listing the available commands. There, bare keys work: `c` new session, `r` resume, `a` background agents, `q` quit. When a Claude session exits (e.g. `/exit`), its tab closes itself; closing the last tab returns to the splash screen.
+Run `tcc` — it starts on a splash screen listing the available commands. There, bare keys work: `c` new session, `t` new terminal, `r` resume, `a` background agents, `q` quit. When a Claude session exits (e.g. `/exit`), its tab closes itself; closing the last tab returns to the splash screen.
 
 Open tabs persist across restarts (`~/.tcc/tabs.json`, updated on every tab change so a crash loses nothing): on the next launch, sessions reopen via `claude --resume` with their history, attached agents re-attach when their worker is still alive (resuming otherwise), and never-prompted sessions reopen fresh in their directory. Close all tabs before quitting if you want a clean start.
 
@@ -58,6 +59,7 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 | Keys | Action |
 |---|---|
 | `^Q c` | New session — a directory browser opens: `Enter` starts the session in the selected directory, `→` browses into it, `←` goes up (`Enter` on `../` also goes up). The "▶ start session here" row picks the current directory; `★` rows are recent Claude projects; `e` for manual path entry. |
+| `^Q t` | New terminal — opens the same directory browser (defaulting to the active tab's directory) and starts a plain `$SHELL` there. The tab title (`❯`) follows the shell's working directory, or a title the shell sets via OSC. Terminals have no Claude status and never block quit. |
 | `^Q r` | Resume a past session (from `~/.claude/projects/`, with titles) |
 | `^Q a` | Background agents — live and completed, like Claude's agent view |
 | `^Q n` / `^Q p` / `^Q 1–9` | Next / previous / nth tab |
