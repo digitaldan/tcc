@@ -207,10 +207,6 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 			// the mouse wheel on tcc's scrollback. (Partial reads share the
 			// prefix with tab-nav and are carried above.)
 			if delta, n := scanScrollNav(p[i:]); delta != 0 {
-				// Arm snap-back synchronously: the app's SetScrolled runs a
-				// message-loop hop later, and a key arriving in that window
-				// would otherwise miss the disarm and leave the view stuck.
-				r.scrolled.Store(true)
 				if r.onWheel != nil {
 					r.onWheel(delta)
 				}
@@ -221,7 +217,6 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 			// Page-scroll shortcut: Ctrl+PageUp/Down (CSI 5;5~ / 6;5~) scrolls
 			// tcc's scrollback a page at a time.
 			if delta, n, partial := scanPageScroll(p[i:]); delta != 0 {
-				r.scrolled.Store(true)
 				if r.onPage != nil {
 					r.onPage(delta)
 				}
@@ -251,7 +246,6 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 					} else if delta, ok := wheelDelta(seq); ok && r.onWheel != nil {
 						// The child doesn't want mouse events; wheel scrolls
 						// tcc's own buffer for this tab.
-						r.scrolled.Store(true)
 						r.onWheel(delta)
 					}
 				}

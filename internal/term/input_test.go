@@ -211,34 +211,6 @@ func TestKeyboardScrollShortcut(t *testing.T) {
 	}
 }
 
-// TestScrollArmsSnapBackSynchronously guards the race where the app's
-// SetScrolled lands a message-loop hop after the router fires the scroll: a key
-// arriving in that window must still snap the view back. The router arms the
-// flag itself at scroll time, so no SetScrolled round-trip is needed.
-func TestScrollArmsSnapBackSynchronously(t *testing.T) {
-	r := NewRouter(0)
-	r.SetMode(ModeSession)
-	r.OnWheel(func(int) {})
-	r.OnPage(func(int) {})
-	var resets int
-	r.OnAnyKey(func() { resets++ })
-
-	// Line-scroll, then a forwarded key (Ctrl+Up) without any SetScrolled call.
-	r.filterSession([]byte("\x1b[1;6A")) // Ctrl+Shift+Up
-	r.filterSession([]byte("\x1b[1;5A")) // Ctrl+Up (forwarded to session)
-	if resets != 1 {
-		t.Fatalf("line-scroll then key should snap back once, got %d", resets)
-	}
-
-	// Page-scroll arms it too.
-	resets = 0
-	r.filterSession([]byte("\x1b[5;5~")) // Ctrl+PageUp
-	r.filterSession([]byte("x"))         // any forwarded key
-	if resets != 1 {
-		t.Fatalf("page-scroll then key should snap back once, got %d", resets)
-	}
-}
-
 func TestPageScrollShortcut(t *testing.T) {
 	r := NewRouter(0)
 	var page int

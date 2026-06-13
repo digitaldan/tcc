@@ -486,11 +486,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case wheelMsg:
 		// Wheel the session didn't ask for: scroll this tab's own history
-		// (3 lines per notch, like most terminals). The router owns the
-		// scrolled flag (it armed it synchronously when it fired this), so we
-		// don't touch it here — a second writer would race the disarm.
+		// (3 lines per notch, like most terminals).
 		if t := m.activeTab(); t != nil && t.Term != nil && !t.Exited() {
 			t.Term.ScrollBy(-msg.delta * 3)
+			off, _ := t.Term.ScrollPosition()
+			m.router.SetScrolled(off > 0)
 		}
 		return m, nil
 
@@ -503,15 +503,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				page = 1
 			}
 			t.Term.ScrollBy(-msg.delta * page)
+			off, _ := t.Term.ScrollPosition()
+			m.router.SetScrolled(off > 0)
 		}
 		return m, nil
 
 	case scrollResetMsg:
-		// The router already cleared its scrolled flag (its CAS is what fired
-		// this); we just drop the view back to live.
 		if t := m.activeTab(); t != nil && t.Term != nil {
 			t.Term.ResetScroll()
 		}
+		m.router.SetScrolled(false)
 		return m, nil
 
 	case tea.MouseMsg:
