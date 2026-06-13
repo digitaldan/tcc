@@ -90,3 +90,29 @@ func NewClaude(opts SpawnOptions) *Session {
 	}
 	return s
 }
+
+// NewTerminal builds a Session (not yet started) running the user's shell in
+// dir. Unlike claude sessions it has no hook wiring; its tab title follows the
+// shell's OSC title / working-directory reports. No flags are passed: a shell
+// attached to a PTY is interactive and loads its rc files (.zshrc/.bashrc),
+// which is where title-setting usually lives — and it avoids the dash `-l`
+// incompatibility of the /bin/sh fallback.
+func NewTerminal(dir string) *Session {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	s := &Session{
+		TabID: NewUUID(),
+		Dir:   dir,
+		Kind:  KindTerminal,
+		Title: filepath.Base(dir),
+	}
+	cmd := exec.Command(shell)
+	cmd.Dir = dir
+	// cleanEnv strips Claude's nested-session markers so a claude launched by
+	// hand inside this terminal isn't mistaken for a sub-session.
+	cmd.Env = cleanEnv()
+	s.Cmd = cmd
+	return s
+}

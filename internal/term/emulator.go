@@ -22,6 +22,8 @@ type Emulator struct {
 	cursorVisible bool
 	bell          func()
 	mouseChange   func(enabled bool)
+	title         func(string)
+	workdir       func(string)
 	mouseModes    map[int]bool
 	scrollOffset  int // lines scrolled back into history (0 = live)
 }
@@ -44,6 +46,17 @@ func New(w, h int) *Emulator {
 		},
 		EnableMode:  func(m ansi.Mode) { e.modeChanged(m, true) },
 		DisableMode: func(m ansi.Mode) { e.modeChanged(m, false) },
+		Title: func(s string) {
+			// Called from within Feed; the callback must not re-lock e.mu.
+			if e.title != nil {
+				e.title(s)
+			}
+		},
+		WorkingDirectory: func(s string) {
+			if e.workdir != nil {
+				e.workdir(s)
+			}
+		},
 	})
 	return e
 }
@@ -103,6 +116,15 @@ func (e *Emulator) OnBell(f func()) { e.bell = f }
 // OnMouseChange registers a callback fired when the child enables or
 // disables mouse tracking.
 func (e *Emulator) OnMouseChange(f func(enabled bool)) { e.mouseChange = f }
+
+// OnTitle registers a callback fired when the child sets the terminal title
+// (OSC 0/2). The callback runs on the PTY reader goroutine and must not call
+// back into the emulator.
+func (e *Emulator) OnTitle(f func(string)) { e.title = f }
+
+// OnWorkingDir registers a callback fired when the child reports its working
+// directory (OSC 7). Same goroutine/locking caveat as OnTitle.
+func (e *Emulator) OnWorkingDir(f func(string)) { e.workdir = f }
 
 // Feed writes child output into the emulator.
 func (e *Emulator) Feed(p []byte) {

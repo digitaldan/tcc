@@ -34,12 +34,13 @@ func (m *Model) splashView(width, rows int) string {
 		splashDimStyle.Render("  Tabbed Claude Code"),
 		"",
 		key("c", "new session         — browse to a directory"),
+		key("t", "new terminal        — a plain shell in a directory"),
 		key("r", "resume a session    — pick from past Claude sessions"),
 		key("a", "background agents   — attach to a running agent"),
 		key("q", "quit"),
 		"",
 		splashDimStyle.Render("  inside a session, commands live behind the " + m.cfg.PrefixLabel() + " prefix:"),
-		splashDimStyle.Render("  " + m.cfg.PrefixLabel() + " c new · r resume · a agents · n/p/1-9 switch · x close · d quit"),
+		splashDimStyle.Render("  " + m.cfg.PrefixLabel() + " c new · t term · r resume · a agents · n/p/1-9 switch · x close · d quit"),
 		splashDimStyle.Render("  ctrl+shift+←/→ switch tabs · click a tab to focus it"),
 	}
 
@@ -57,7 +58,11 @@ func (m *Model) handleSplashKey(key string) (handled bool, quit bool) {
 	switch key {
 	case "c", "enter":
 		m.mode = uiDirPrompt
-		m.dirPrompt = newDirPrompt(m.startDir)
+		m.dirPrompt = newDirPrompt(m.startDir, false)
+		return true, false
+	case "t":
+		m.mode = uiDirPrompt
+		m.dirPrompt = newDirPrompt(m.activeDir(), true)
 		return true, false
 	case "r":
 		m.mode = uiResumePicker

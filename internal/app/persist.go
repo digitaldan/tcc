@@ -40,6 +40,8 @@ func kindString(k session.Kind) string {
 		return "resumed"
 	case session.KindAttached:
 		return "attached"
+	case session.KindTerminal:
+		return "terminal"
 	default:
 		return "spawned"
 	}
@@ -112,6 +114,18 @@ func (m *Model) restoreTabs(st savedState) {
 	liveBySession := claude.ActiveAgentsBySession()
 	for _, s := range st.Tabs {
 		debugf("restore tab kind=%s sid=%s dir=%s resumable=%v", s.Kind, s.SessionID, s.Dir, claude.SessionResumable(s.SessionID))
+		if s.Kind == "terminal" {
+			dir := s.Dir
+			if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+				dir = m.startDir
+			}
+			if err := m.spawnTerminal(dir); err != nil {
+				debugf("restoreTabs: terminal spawn in %s failed: %v", dir, err)
+			} else if t := m.activeTab(); t != nil && s.Title != "" {
+				t.Title = s.Title // until the shell reports its own
+			}
+			continue
+		}
 		if s.Kind == "attached" {
 			if a, ok := claude.LiveAgentByShort(s.AgentShort); ok {
 				m.attachAgent(a)
