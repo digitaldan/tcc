@@ -194,7 +194,7 @@ func (e *Emulator) View() string {
 	w, h := e.vt.Width(), e.vt.Height()
 
 	if e.scrollOffset > 0 {
-		return e.renderScrolled(h)
+		return fixHyperlinkOrder(e.renderScrolled(h))
 	}
 
 	cur := e.vt.CursorPosition()
@@ -210,7 +210,67 @@ func (e *Emulator) View() string {
 	if e.cursorVisible && cur.Y >= 0 && cur.Y < h {
 		lines[cur.Y] = e.renderLineWithCursor(cur.Y, cur.X, w)
 	}
-	return strings.Join(lines, "\n")
+	return fixHyperlinkOrder(strings.Join(lines, "\n"))
+}
+
+// fixHyperlinkOrder works around a bug in x/vt's OSC 8 parser
+// (osc.go handleHyperlink), which stores the hyperlink params and URI
+// swapped. The renderer then emits "OSC 8 ; URI ; params" instead of the
+// spec's "OSC 8 ; params ; URI", so the host terminal treats the params
+// (e.g. "id=...") as the link target and refuses to open it. We swap the two
+// fields back on the way out. The parser only accepts links with exactly two
+// ';'-separated fields, so each emitted sequence has exactly one inner ';'
+// and the swap is unambiguous. Remove when the upstream parser is fixed.
+func fixHyperlinkOrder(s string) string {
+	const intro = "\x1b]8;"
+	if !strings.Contains(s, intro) {
+		return s
+	}
+	var b strings.Builder
+	for {
+		i := strings.Index(s, intro)
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:i])
+		rest := s[i+len(intro):]
+
+		// Locate the string terminator: BEL or ST (ESC \).
+		end, termLen := -1, 0
+		for j := 0; j < len(rest); j++ {
+			if rest[j] == 0x07 {
+				end, termLen = j, 1
+				break
+			}
+			if rest[j] == 0x1b && j+1 < len(rest) && rest[j+1] == '\\' {
+				end, termLen = j, 2
+				break
+			}
+		}
+		if end < 0 {
+			// No terminator (sequence cut at the screen edge); leave as-is.
+			b.WriteString(intro)
+			b.WriteString(rest)
+			return b.String()
+		}
+
+		body, term := rest[:end], rest[end:end+termLen]
+		if k := strings.IndexByte(body, ';'); k >= 0 {
+			// vt emits "<URI>;<params>"; swap to the spec's "<params>;<URI>".
+			first, second := body[:k], body[k+1:]
+			b.WriteString(intro)
+			b.WriteString(second)
+			b.WriteByte(';')
+			b.WriteString(first)
+			b.WriteString(term)
+		} else {
+			b.WriteString(intro)
+			b.WriteString(body)
+			b.WriteString(term)
+		}
+		s = rest[end+termLen:]
+	}
 }
 
 // renderScrolled composes the view at the current scrollback offset: the

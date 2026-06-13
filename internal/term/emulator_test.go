@@ -94,3 +94,34 @@ func TestScrollbackView(t *testing.T) {
 		t.Fatalf("live view should show the newest line:\n%s", e.View())
 	}
 }
+
+// TestHyperlinkOrder guards the workaround for x/vt's swapped OSC 8 parser:
+// a hyperlink fed in as "params;URI" must render back out in that same order,
+// not swapped, or the host terminal can't open the link.
+func TestHyperlinkOrder(t *testing.T) {
+	cases := []struct {
+		name, feed, wantSeq string
+	}{
+		{"id param", "\x1b]8;id=2431ya;https://example.com/path\x07X\x1b]8;;\x07",
+			"\x1b]8;id=2431ya;https://example.com/path\x07"},
+		{"empty params", "\x1b]8;;https://example.com\x07X\x1b]8;;\x07",
+			"\x1b]8;;https://example.com\x07"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := New(80, 24)
+			e.Feed([]byte(tc.feed))
+			out := e.View()
+			if !strings.Contains(out, tc.wantSeq) {
+				t.Errorf("rendered output missing %q\ngot: %q", tc.wantSeq, firstLine(out))
+			}
+		})
+	}
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
