@@ -216,8 +216,8 @@ func TestPageScrollShortcut(t *testing.T) {
 	var page int
 	r.OnPage(func(d int) { page += d })
 
-	// Ctrl+PageUp/Down are intercepted; surrounding bytes pass through.
-	out, _ := r.filterSession([]byte("a\x1b[5;5~b\x1b[6;5~c"))
+	// Ctrl+Shift+PageUp/Down are intercepted; surrounding bytes pass through.
+	out, _ := r.filterSession([]byte("a\x1b[5;6~b\x1b[6;6~c"))
 	if string(out) != "abc" {
 		t.Fatalf("page keys leaked to session: %q", out)
 	}
@@ -226,20 +226,27 @@ func TestPageScrollShortcut(t *testing.T) {
 	}
 
 	page = 0
-	_, _ = r.filterSession([]byte("\x1b[5;5~\x1b[5;5~"))
+	_, _ = r.filterSession([]byte("\x1b[5;6~\x1b[5;6~"))
 	if page != -2 {
 		t.Fatalf("two page-ups should give -2, got %d", page)
 	}
 
-	// Bare PageUp/PageDown (no Ctrl) pass through to the session.
+	// Bare PageUp/PageDown (no modifiers) pass through to the session.
 	out, _ = r.filterSession([]byte("\x1b[5~\x1b[6~"))
 	if string(out) != "\x1b[5~\x1b[6~" {
 		t.Fatalf("bare page keys should pass through: %q", out)
 	}
 
-	// A partial Ctrl+PageUp at the read boundary is carried, not leaked.
+	// Plain Ctrl+PageUp/Down (modifier 5) pass through — many terminals bind
+	// those to their own tab switching, so we use Ctrl+Shift instead.
+	out, _ = r.filterSession([]byte("\x1b[5;5~\x1b[6;5~"))
+	if string(out) != "\x1b[5;5~\x1b[6;5~" {
+		t.Fatalf("ctrl+page keys should pass through: %q", out)
+	}
+
+	// A partial Ctrl+Shift+PageUp at the read boundary is carried, not leaked.
 	r.carry = nil
-	out, _ = r.filterSession([]byte("z\x1b[5;5"))
+	out, _ = r.filterSession([]byte("z\x1b[5;6"))
 	if string(out) != "z" || len(r.carry) == 0 {
 		t.Fatalf("page carry broken: out=%q carry=%q", out, r.carry)
 	}

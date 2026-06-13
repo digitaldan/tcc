@@ -39,7 +39,7 @@ type Router struct {
 	onTabClick func(col int)
 	onTabNav   func(delta int)
 	onWheel    func(delta int) // wheel the child doesn't consume (scrollback)
-	onPage     func(delta int) // Ctrl+PageUp/Down: scroll a page of scrollback
+	onPage     func(delta int) // Ctrl+Shift+PageUp/Down: scroll a page of scrollback
 	onAnyKey   func()          // non-mouse session input while scrolled back
 
 	scrolled atomic.Bool // a scrollback view is active; keys snap it back
@@ -85,8 +85,9 @@ func (r *Router) OnTabNav(f func(delta int)) { r.onTabNav = f }
 // delta is negative for wheel-up (older content).
 func (r *Router) OnWheel(f func(delta int)) { r.onWheel = f }
 
-// OnPage registers a callback for the Ctrl+PageUp/PageDown shortcut, which
-// scrolls tcc's scrollback a page at a time. delta is -1 for PageUp (older).
+// OnPage registers a callback for the Ctrl+Shift+PageUp/PageDown shortcut,
+// which scrolls tcc's scrollback a page at a time. delta is -1 for PageUp
+// (older).
 func (r *Router) OnPage(f func(delta int)) { r.onPage = f }
 
 // OnAnyKey registers a callback fired when non-mouse input is forwarded to
@@ -214,8 +215,8 @@ func (r *Router) filterSession(p []byte) (out, rest []byte) {
 				continue
 			}
 
-			// Page-scroll shortcut: Ctrl+PageUp/Down (CSI 5;5~ / 6;5~) scrolls
-			// tcc's scrollback a page at a time.
+			// Page-scroll shortcut: Ctrl+Shift+PageUp/Down (CSI 5;6~ / 6;6~)
+			// scrolls tcc's scrollback a page at a time.
 			if delta, n, partial := scanPageScroll(p[i:]); delta != 0 {
 				if r.onPage != nil {
 					r.onPage(delta)
@@ -270,11 +271,11 @@ var (
 	navPrev    = []byte("\x1b[1;6D") // Ctrl+Shift+Left
 	scrollUp   = []byte("\x1b[1;6A") // Ctrl+Shift+Up
 	scrollDown = []byte("\x1b[1;6B") // Ctrl+Shift+Down
-	pageUp     = []byte("\x1b[5;5~") // Ctrl+PageUp
-	pageDown   = []byte("\x1b[6;5~") // Ctrl+PageDown
+	pageUp     = []byte("\x1b[5;6~") // Ctrl+Shift+PageUp
+	pageDown   = []byte("\x1b[6;6~") // Ctrl+Shift+PageDown
 )
 
-// scanPageScroll matches the Ctrl+PageUp/PageDown shortcuts at the start of p.
+// scanPageScroll matches the Ctrl+Shift+PageUp/PageDown shortcuts at the start of p.
 // delta follows wheel semantics: -1 scrolls toward older content. partial=true
 // means p ends mid-way through a possible match (n bytes examined). Unlike the
 // scroll-nav sequences these share no prefix with tab-nav, so partials are
@@ -282,7 +283,7 @@ var (
 func scanPageScroll(p []byte) (delta, n int, partial bool) {
 	for _, c := range [][]byte{pageUp, pageDown} {
 		if bytes.HasPrefix(p, c) {
-			if c[2] == '5' { // CSI 5;5~ = PageUp
+			if c[2] == '5' { // CSI 5;6~ = PageUp
 				return -1, len(c), false
 			}
 			return 1, len(c), false
