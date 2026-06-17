@@ -40,7 +40,7 @@ func (m *Model) splashView(width, rows int) string {
 		key("q", "quit"),
 		"",
 		splashDimStyle.Render("  inside a session, commands live behind the " + m.cfg.PrefixLabel() + " prefix:"),
-		splashDimStyle.Render("  " + m.cfg.PrefixLabel() + " c new · t term · r resume · a agents · n/p/1-9 switch · x close · d quit"),
+		splashDimStyle.Render("  " + m.cfg.PrefixLabel() + " c new · t term · r resume · a agents · n/p/1-9 switch · x close · d quit · ? help"),
 		splashDimStyle.Render("  ctrl+shift+←/→ switch tabs · click a tab to focus it"),
 	}
 

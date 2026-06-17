@@ -39,6 +39,7 @@ const (
 	uiResumePicker               // resume-a-session list
 	uiAgentsPicker               // background agents list
 	uiQuitConfirm                // quit warning while sessions are mid-task
+	uiHelp                       // keybinding help overlay
 )
 
 type Model struct {
@@ -552,6 +553,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case worktreeCreatedMsg:
+		if m.mode != uiDirPrompt || m.dirPrompt == nil {
+			return m, nil
+		}
+		m.dirPrompt.creating = false
+		if msg.err != nil {
+			m.dirPrompt.err = fmt.Sprintf("worktree failed: %v", msg.err)
+			return m, nil
+		}
+		return m.openSessionIn(msg.path)
+
 	case jobStateMsg:
 		if t := m.tabByID(msg.tabID); t != nil {
 			t.applyJobState(msg.js)
@@ -600,6 +612,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleAgentsPicker(msg)
 		case uiQuitConfirm:
 			return m.handleQuitConfirm(msg)
+		case uiHelp:
+			// Any key dismisses the help overlay.
+			m.enterSessionMode()
+			return m, nil
 		default:
 			// Splash screen: bare keys act without the prefix.
 			if len(m.sessions) == 0 {
@@ -676,6 +692,9 @@ func (m *Model) handleChord(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = uiAgentsPicker
 		m.agents = newAgentsPicker(m, m.width, m.bodyRows())
 		return m, nil
+	case "h", "?":
+		m.mode = uiHelp
+		return m, nil
 	case "n", "tab":
 		m.cycleTab(1)
 	case "p", "shift+tab":
@@ -714,6 +733,8 @@ func (m *Model) View() string {
 		body = m.resume.view(m.width, rows)
 	case m.mode == uiAgentsPicker && m.agents != nil:
 		body = m.agents.view(m.width, rows)
+	case m.mode == uiHelp:
+		body = m.helpView(m.width, rows)
 	default:
 		if t := m.activeTab(); t != nil && t.Term != nil {
 			body = t.Term.View()
