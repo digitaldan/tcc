@@ -3,9 +3,11 @@ package app
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -101,6 +103,9 @@ type dirPrompt struct {
 	manual bool // manual path-entry mode
 	input  textinput.Model
 	err    string
+
+	worktree bool   // git-worktree creation mode
+	wtRoot   string // git toplevel the worktree branches off
 
 	showHidden bool
 	terminal   bool // open a plain terminal here instead of a claude session
@@ -226,6 +231,9 @@ func (m *Model) handleDirPrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if d.manual {
 		return m.handleManualEntry(msg)
 	}
+	if d.worktree {
+		return m.handleWorktreeEntry(msg)
+	}
 
 	if d.list.FilterState() != list.Filtering {
 		switch msg.String() {
@@ -237,7 +245,31 @@ func (m *Model) handleDirPrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.openSessionIn(d.curDir)
 		case "e":
 			d.manual = true
+			d.input.Prompt = "dir: "
 			d.input.SetValue(d.curDir)
+			d.input.CursorEnd()
+			d.input.Focus()
+			return m, nil
+		case "w":
+			// Create a worktree off the git repo of the selected dir (or, if
+			// the selection isn't a repo, the directory we're browsing).
+			target := d.curDir
+			if it, ok := d.list.SelectedItem().(dirItem); ok {
+				target = it.path
+			}
+			root := gitRoot(target)
+			if root == "" {
+				d.err = "not a git repository: " + shortenHome(target)
+				return m, nil
+			}
+			d.worktree = true
+			d.wtRoot = root
+			d.err = ""
+			d.input.Prompt = "dir: "
+			d.input.Placeholder = ""
+			// Prefill the full path with a "-<timestamp>" default; the cursor
+			// lands at the end and the whole value is editable.
+			d.input.SetValue(root + "-" + time.Now().Format("2006-01-02-150405"))
 			d.input.CursorEnd()
 			d.input.Focus()
 			return m, nil
@@ -299,6 +331,70 @@ func (m *Model) handleManualEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *Model) handleWorktreeEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	d := m.dirPrompt
+	switch msg.String() {
+	case "esc":
+		d.worktree = false
+		d.err = ""
+		d.input.Prompt = "dir: "
+		d.input.SetValue("")
+		return m, nil
+	case "ctrl+c":
+		m.enterSessionMode()
+		return m, nil
+	case "enter":
+		path := expandPath(d.input.Value())
+		branch := worktreeBranch(d.wtRoot, path)
+		if branch == "" {
+			d.err = "type a name for the worktree"
+			return m, nil
+		}
+		if err := createWorktree(d.wtRoot, path, branch); err != nil {
+			d.err = fmt.Sprintf("worktree failed: %v", err)
+			return m, nil
+		}
+		return m.openSessionIn(path)
+	}
+	var cmd tea.Cmd
+	d.input, cmd = d.input.Update(msg)
+	return m, cmd
+}
+
+// gitRoot returns the work-tree top level containing dir, or "" if dir is not
+// inside a git repository.
+func gitRoot(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// worktreeBranch derives a branch name from the worktree path: the part of the
+// basename after "<repo>-", or the whole basename if it doesn't follow that
+// convention. Returns "" when there's nothing past the prefix.
+func worktreeBranch(root, path string) string {
+	base := filepath.Base(path)
+	if prefix := filepath.Base(root) + "-"; strings.HasPrefix(base, prefix) {
+		return strings.TrimPrefix(base, prefix)
+	}
+	return base
+}
+
+// createWorktree adds a worktree at path on a new branch, branching off the
+// repo at root.
+func createWorktree(root, path, branch string) error {
+	cmd := exec.Command("git", "-C", root, "worktree", "add", path, "-b", branch)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
+}
+
 // openSessionIn validates dir and spawns a claude session — or a plain
 // terminal, when the prompt was opened for one — there.
 func (m *Model) openSessionIn(dir string) (tea.Model, tea.Cmd) {
@@ -354,6 +450,18 @@ func (d *dirPrompt) view(width, rows int) string {
 		return strings.Repeat("\n", pad) + lipgloss.PlaceHorizontal(width, lipgloss.Center, box)
 	}
 
+	if d.worktree {
+		d.input.Width = max(20, min(width-20, 90))
+		content := "new git worktree — edit the path (branch named from the part after \"-\")\n\n" + d.input.View()
+		if d.err != "" {
+			content += "\n" + promptErrStyle.Render(d.err)
+		}
+		content += "\n\nenter: create & open · esc: back to browser"
+		box := promptBoxStyle.Width(min(width-4, 100)).Render(content)
+		pad := rows / 3
+		return strings.Repeat("\n", pad) + lipgloss.PlaceHorizontal(width, lipgloss.Center, box)
+	}
+
 	w := min(width-6, 100)
 
 	// Where you are; Enter picks from the list below.
@@ -370,7 +478,7 @@ func (d *dirPrompt) view(width, rows int) string {
 	footer := footerStyle.Render(
 		hereKeyStyle.Render("enter") + footerStyle.Render(": start "+noun+" in selected dir · ") +
 			hereKeyStyle.Render("→") + footerStyle.Render(": into dir · ") +
-			hereKeyStyle.Render("←") + footerStyle.Render(": up · ~: home · .: hidden · /: filter · e: type path · esc: cancel"))
+			hereKeyStyle.Render("←") + footerStyle.Render(": up · ~: home · .: hidden · /: filter · e: type path · w: worktree · esc: cancel"))
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(header + body + "\n" + footer)
 }

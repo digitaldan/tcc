@@ -76,7 +76,7 @@ func (m *Model) tabBar() string {
 	}
 	switch m.mode {
 	case uiChord:
-		hint = chordStyle.Render(" " + m.cfg.PrefixLabel() + "  c:new t:term r:resume a:agents n/p:switch x:close d:quit ")
+		hint = chordStyle.Render(" " + m.cfg.PrefixLabel() + "  c:new t:term r:resume a:agents n/p:switch x:close d:quit ?:help ")
 	case uiDirPrompt:
 		label := " new session "
 		if m.dirPrompt != nil && m.dirPrompt.terminal {
@@ -87,6 +87,8 @@ func (m *Model) tabBar() string {
 		hint = chordStyle.Render(" resume session ")
 	case uiAgentsPicker:
 		hint = chordStyle.Render(" background agents ")
+	case uiHelp:
+		hint = chordStyle.Render(" help ")
 	}
 	hintW := lipgloss.Width(hint)
 
