@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -106,6 +107,7 @@ type dirPrompt struct {
 
 	worktree bool   // git-worktree creation mode
 	wtRoot   string // git toplevel the worktree branches off
+	creating bool   // a `git worktree add` is running in the background
 
 	showHidden bool
 	terminal   bool // open a plain terminal here instead of a claude session
@@ -333,6 +335,10 @@ func (m *Model) handleManualEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleWorktreeEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	d := m.dirPrompt
+	if d.creating {
+		// `git worktree add` is running; ignore input until it reports back.
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc":
 		d.worktree = false
@@ -344,17 +350,25 @@ func (m *Model) handleWorktreeEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.enterSessionMode()
 		return m, nil
 	case "enter":
+		if strings.TrimSpace(d.input.Value()) == "" {
+			d.err = "path cannot be empty"
+			return m, nil
+		}
 		path := expandPath(d.input.Value())
 		branch := worktreeBranch(d.wtRoot, path)
 		if branch == "" {
 			d.err = "type a name for the worktree"
 			return m, nil
 		}
-		if err := createWorktree(d.wtRoot, path, branch); err != nil {
-			d.err = fmt.Sprintf("worktree failed: %v", err)
-			return m, nil
+		// Create off the UI thread: `git worktree add` checks out files and
+		// can run hooks, so it may take seconds. The result returns as a
+		// worktreeCreatedMsg.
+		d.err = ""
+		d.creating = true
+		root := d.wtRoot
+		return m, func() tea.Msg {
+			return worktreeCreatedMsg{path: path, err: createWorktree(root, path, branch)}
 		}
-		return m.openSessionIn(path)
 	}
 	var cmd tea.Cmd
 	d.input, cmd = d.input.Update(msg)
@@ -364,7 +378,9 @@ func (m *Model) handleWorktreeEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // gitRoot returns the work-tree top level containing dir, or "" if dir is not
 // inside a git repository.
 func gitRoot(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return ""
 	}
@@ -383,10 +399,17 @@ func worktreeBranch(root, path string) string {
 }
 
 // createWorktree adds a worktree at path on a new branch, branching off the
-// repo at root.
+// repo at root. The timeout is generous: checking out a large repo legitimately
+// takes a while, and it only needs to catch a truly wedged git process.
 func createWorktree(root, path, branch string) error {
-	cmd := exec.Command("git", "-C", root, "worktree", "add", path, "-b", branch)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "worktree", "add", path, "-b", branch)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("git worktree add timed out")
+		}
 		if msg := strings.TrimSpace(string(out)); msg != "" {
 			return fmt.Errorf("%s", msg)
 		}
@@ -452,11 +475,18 @@ func (d *dirPrompt) view(width, rows int) string {
 
 	if d.worktree {
 		d.input.Width = max(20, min(width-20, 90))
-		content := "new git worktree — edit the path (branch named from the part after \"-\")\n\n" + d.input.View()
+		var content string
+		if d.creating {
+			content = "creating worktree…\n\n" + d.input.View()
+		} else {
+			content = "new git worktree — edit the path (branch named from the part after \"-\")\n\n" + d.input.View()
+		}
 		if d.err != "" {
 			content += "\n" + promptErrStyle.Render(d.err)
 		}
-		content += "\n\nenter: create & open · esc: back to browser"
+		if !d.creating {
+			content += "\n\nenter: create & open · esc: back to browser"
+		}
 		box := promptBoxStyle.Width(min(width-4, 100)).Render(content)
 		pad := rows / 3
 		return strings.Repeat("\n", pad) + lipgloss.PlaceHorizontal(width, lipgloss.Center, box)

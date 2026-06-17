@@ -71,3 +71,9 @@ type agentStoppedMsg struct {
 	dir       string
 	title     string
 }
+
+// worktreeCreatedMsg reports the result of an async `git worktree add`.
+type worktreeCreatedMsg struct {
+	path string
+	err  error
+}

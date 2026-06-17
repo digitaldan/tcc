@@ -553,6 +553,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case worktreeCreatedMsg:
+		if m.mode != uiDirPrompt || m.dirPrompt == nil {
+			return m, nil
+		}
+		m.dirPrompt.creating = false
+		if msg.err != nil {
+			m.dirPrompt.err = fmt.Sprintf("worktree failed: %v", msg.err)
+			return m, nil
+		}
+		return m.openSessionIn(msg.path)
+
 	case jobStateMsg:
 		if t := m.tabByID(msg.tabID); t != nil {
 			t.applyJobState(msg.js)
