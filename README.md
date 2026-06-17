@@ -21,6 +21,7 @@ A tabbed terminal manager for [Claude Code](https://claude.com/claude-code) sess
 
 - **Tabs for parallel Claude sessions** — spawn sessions in any directory, switch instantly (`Ctrl+Shift+←/→`, number keys, or click a tab)
 - **Plain terminal tabs too** — open a shell in any directory alongside your Claude sessions (`^Q t`); the tab title tracks the shell's working directory, or the title the shell sets itself
+- **Git worktrees on the fly** — in the new-session browser, `w` creates a worktree (and branch) off the selected repo and starts a session in it
 - **Live status without polling** — tab badges driven by Claude Code's own hook events: busy, idle, waiting for permission/input, errored
 - **Resume anything** — a filterable picker over your past sessions (`~/.claude/projects/`) with their titles, projects, and ages
 - **Background agents, first-class** — see live *and* completed agents like Claude's agent view; attach to a running worker, or stop it and pull the conversation into the foreground with full history
@@ -37,7 +38,7 @@ Download a binary from the [latest release](https://github.com/digitaldan/tcc/re
 go install github.com/digitaldan/tcc/cmd/tcc@latest
 ```
 
-Or build from source (Go 1.22+):
+Or build from source (Go 1.26+):
 
 ```sh
 git clone https://github.com/digitaldan/tcc && cd tcc
@@ -58,7 +59,7 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 
 | Keys | Action |
 |---|---|
-| `^Q c` | New session — a directory browser opens: `Enter` starts the session in the selected directory, `→` browses into it, `←` goes up (`Enter` on `../` also goes up). The "▶ start session here" row picks the current directory; `★` rows are recent Claude projects; `e` for manual path entry. |
+| `^Q c` | New session — a directory browser opens: `Enter` starts the session in the selected directory, `→` browses into it, `←` goes up (`Enter` on `../` also goes up). The "▶ start session here" row picks the current directory; `★` rows are recent Claude projects; `e` for manual path entry; `w` creates a git worktree off the selected repo. |
 | `^Q t` | New terminal — opens the same directory browser (defaulting to the active tab's directory) and starts a plain `$SHELL` there. The tab title (`❯`) follows the shell's working directory, or a title the shell sets via OSC. Terminals have no Claude status and never block quit. |
 | `^Q r` | Resume a past session (from `~/.claude/projects/`, with titles) |
 | `^Q a` | Background agents — live and completed, like Claude's agent view |
@@ -70,6 +71,7 @@ Inside a session, commands live behind the **Ctrl+Q** prefix (configurable):
 | `^Q x` | Close tab (kills the session; attached agents just detach) |
 | `^Q d` | Quit tcc. If any session is mid-task, a warning lists them and asks to confirm (`Enter`/`y` quits — they're stopped but stay resumable and the tabs reopen next launch; `Esc` cancels). All idle → quits immediately. |
 | `^Q ^Q` | Send a literal Ctrl+Q to the session |
+| `^Q h` / `^Q ?` | Show the keybinding help overlay (any key dismisses) |
 | `Esc` | Cancel the prefix or any picker |
 
 ### Background agents
